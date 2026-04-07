@@ -1,1074 +1,818 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 import random
 import time
-from datetime import datetime, timedelta
 
-# ─────────────────────────────────────────────────────────────────
-#  HELPERS — cifrão seguro para HTML (evita conflito com LaTeX)
-# ─────────────────────────────────────────────────────────────────
-def fmt(valor):
-    """R&#36; X,XX  — seguro para unsafe_allow_html=True"""
-    return "R&#36;&nbsp;" + f"{valor:.2f}".replace(".", ",")
-
-def rr(valor):
-    """R[cifrão] X.XX  — para texto Python puro (st.write, st.success, etc.)"""
-    return "R" + chr(36) + f" {valor:.2f}"
-
-# ─────────────────────────────────────────────────────────────────
-#  PAGE CONFIG
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  PAGE CONFIG & GLOBAL THEME
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="4SAVR v3.0 – BI & Inteligência de Estoque",
-    page_icon="💚",
+    page_title="4SAVR · Inteligência de Varejo",
+    page_icon="🛒",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ─────────────────────────────────────────────────────────────────
-#  SESSION STATE
-# ─────────────────────────────────────────────────────────────────
-if "ofertas_ativas" not in st.session_state:
-    st.session_state.ofertas_ativas = [
-        {"produto":"Café Torrado 500g","preco":13.90,"validade":"Hoje, até 22h",
-         "lojista":"Mercado Boa Vista","emoji":"☕","validado":True,"alcance":342,"ts":"09h15"},
-        {"produto":"Leite Integral 1L","preco":3.99,"validade":"Amanhã, dia todo",
-         "lojista":"Supermercado Central","emoji":"🥛","validado":True,"alcance":218,"ts":"10h02"},
-        {"produto":"Frango Congelado 1kg","preco":9.90,"validade":"Este fim de semana",
-         "lojista":"Atacado do Bairro","emoji":"🍗","validado":False,"alcance":97,"ts":"11h30"},
-    ]
-
-if "precos_validados" not in st.session_state:
-    st.session_state.precos_validados = {
-        ("Leite Integral 1L","Supermercado Central"),
-        ("Arroz Branco 5kg","Atacado do Bairro"),
-        ("Café Torrado 500g","Mini Box Econômico"),
-        ("Cerveja Lata 350ml","Mercado Família"),
-        ("Óleo de Soja 900ml","Mercado Boa Vista"),
-    }
-
-if "pontos_usuario" not in st.session_state:
-    st.session_state.pontos_usuario = 340
-
-if "total_validacoes" not in st.session_state:
-    st.session_state.total_validacoes = 7
-
-# Contador de buscas por produto — alimenta o BI do lojista
-if "search_counter" not in st.session_state:
-    st.session_state.search_counter = {
-        "Café Torrado 500g":       28,
-        "Leite Integral 1L":       24,
-        "Arroz Branco 5kg":        19,
-        "Frango Congelado 1kg":    17,
-        "Cerveja Lata 350ml":      15,
-        "Feijão Carioca 1kg":      12,
-        "Óleo de Soja 900ml":      10,
-        "Açúcar Cristal 1kg":       8,
-        "Pão de Forma 500g":        6,
-        "Macarrão Espaguete 500g":  4,
-    }
-
-# ─────────────────────────────────────────────────────────────────
-#  MOCK DATA
-# ─────────────────────────────────────────────────────────────────
-MERCADOS = {
-    "Mercado Boa Vista":    "0m (referência)",
-    "Supermercado Central": "180m",
-    "Mini Box Econômico":   "300m",
-    "Atacado do Bairro":    "520m",
-    "Mercado Família":      "750m",
-}
-
-PRODUTOS_BASE = {
-    "Leite Integral 1L":       {"emoji":"🥛","categoria":"Laticínios","unidade":"1L"},
-    "Arroz Branco 5kg":        {"emoji":"🌾","categoria":"Grãos","unidade":"5kg"},
-    "Feijão Carioca 1kg":      {"emoji":"🫘","categoria":"Grãos","unidade":"1kg"},
-    "Cerveja Lata 350ml":      {"emoji":"🍺","categoria":"Bebidas","unidade":"lata"},
-    "Café Torrado 500g":       {"emoji":"☕","categoria":"Bebidas","unidade":"500g"},
-    "Óleo de Soja 900ml":      {"emoji":"🫙","categoria":"Condimentos","unidade":"900ml"},
-    "Açúcar Cristal 1kg":      {"emoji":"🍬","categoria":"Açúcar","unidade":"1kg"},
-    "Pão de Forma 500g":       {"emoji":"🍞","categoria":"Padaria","unidade":"500g"},
-    "Macarrão Espaguete 500g": {"emoji":"🍝","categoria":"Massas","unidade":"500g"},
-    "Frango Congelado 1kg":    {"emoji":"🍗","categoria":"Proteínas","unidade":"1kg"},
-}
-
-PRECOS_BASE = {
-    "Leite Integral 1L":       [4.79,4.99,4.49,4.29,5.10],
-    "Arroz Branco 5kg":        [22.90,23.50,21.80,20.50,24.00],
-    "Feijão Carioca 1kg":      [8.99,8.49,9.20,7.99,9.50],
-    "Cerveja Lata 350ml":      [3.89,3.99,3.79,3.59,4.10],
-    "Café Torrado 500g":       [15.90,16.50,14.90,14.20,16.90],
-    "Óleo de Soja 900ml":      [6.89,7.10,6.59,6.29,7.20],
-    "Açúcar Cristal 1kg":      [3.49,3.59,3.39,3.19,3.70],
-    "Pão de Forma 500g":       [7.49,7.99,7.29,6.99,8.10],
-    "Macarrão Espaguete 500g": [4.29,4.49,4.09,3.89,4.59],
-    "Frango Congelado 1kg":    [11.90,12.50,11.20,10.80,12.90],
-}
-
-TIMESTAMPS = [
-    "Atualizado há 8 min","Atualizado há 15 min","Atualizado há 23 min",
-    "Atualizado há 41 min","Atualizado há 1h 02min",
-]
-
-EMBAIXADORES = [
-    {"nome":"Ana Paula M.","pts":1840,"badge":"🏆"},
-    {"nome":"Ricardo S.",  "pts":1622,"badge":"🥈"},
-    {"nome":"Fernanda L.", "pts":1405,"badge":"🥉"},
-    {"nome":"João Victor", "pts":1298,"badge":"⭐"},
-    {"nome":"Marcia T.",   "pts":1187,"badge":"⭐"},
-]
-
-# Dados de estoque simulados por produto
-ESTOQUE_DATA = {
-    "Leite Integral 1L":       {"estoque":48,"giro_dia":12,"validade_dias":3, "custo":3.20,"preco_venda":4.79,"pedido_min":24,"status":"ok"},
-    "Arroz Branco 5kg":        {"estoque":32,"giro_dia":4, "validade_dias":180,"custo":17.00,"preco_venda":22.90,"pedido_min":12,"status":"ok"},
-    "Feijão Carioca 1kg":      {"estoque":15,"giro_dia":3, "validade_dias":90, "custo":6.20,"preco_venda":8.99,"pedido_min":12,"status":"atencao"},
-    "Cerveja Lata 350ml":      {"estoque":120,"giro_dia":20,"validade_dias":180,"custo":2.50,"preco_venda":3.89,"pedido_min":48,"status":"ok"},
-    "Café Torrado 500g":       {"estoque":9, "giro_dia":8, "validade_dias":60, "custo":10.80,"preco_venda":15.90,"pedido_min":12,"status":"atencao"},
-    "Óleo de Soja 900ml":      {"estoque":6, "giro_dia":2, "validade_dias":8,  "custo":4.80,"preco_venda":6.89,"pedido_min":12,"status":"risco"},
-    "Açúcar Cristal 1kg":      {"estoque":22,"giro_dia":3, "validade_dias":365,"custo":2.30,"preco_venda":3.49,"pedido_min":12,"status":"ok"},
-    "Pão de Forma 500g":       {"estoque":8, "giro_dia":5, "validade_dias":4,  "custo":5.20,"preco_venda":7.49,"pedido_min":12,"status":"risco"},
-    "Macarrão Espaguete 500g": {"estoque":30,"giro_dia":4, "validade_dias":180,"custo":2.80,"preco_venda":4.29,"pedido_min":12,"status":"ok"},
-    "Frango Congelado 1kg":    {"estoque":18,"giro_dia":6, "validade_dias":30, "custo":8.20,"preco_venda":11.90,"pedido_min":12,"status":"atencao"},
-}
-
-# Dados de marcas por categoria
-MARCAS_DATA = {
-    "Café Torrado 500g": {
-        "marcas": ["Pilão","3 Corações","Melitta","Iguaçu","Café do Bairro"],
-        "vendas": [42,35,28,18,12],
-        "margem": [18,22,20,25,30],
-    },
-    "Leite Integral 1L": {
-        "marcas": ["Italac","Piracanjuba","Vigor","Parmalat","Ninho"],
-        "vendas": [55,48,32,25,18],
-        "margem": [15,18,20,14,22],
-    },
-    "Arroz Branco 5kg": {
-        "marcas": ["Camil","Tio João","Prato Fino","Namorado","A Granel"],
-        "vendas": [38,34,22,16,8],
-        "margem": [12,14,18,20,28],
-    },
-    "Cerveja Lata 350ml": {
-        "marcas": ["Skol","Brahma","Itaipava","Original","Eisenbahn"],
-        "vendas": [60,52,38,24,12],
-        "margem": [20,18,22,28,35],
-    },
-}
-
-def build_df():
-    rows = []
-    for prod, precos in PRECOS_BASE.items():
-        for i, merc in enumerate(MERCADOS):
-            rows.append({"Produto":prod,"Mercado":merc,
-                         "Distancia":list(MERCADOS.values())[i],
-                         "Preco":precos[i],"Timestamp":TIMESTAMPS[i]})
-    return pd.DataFrame(rows)
-
-def build_history(produto):
-    dias  = [datetime.today() - timedelta(days=i) for i in range(13,-1,-1)]
-    base  = PRECOS_BASE[produto][0]
-    media = sum(PRECOS_BASE[produto]) / len(PRECOS_BASE[produto])
-    random.seed(42)
-    return pd.DataFrame({
-        "Data":            [d.strftime("%d/%m") for d in dias],
-        "Seu Mercado":     [round(base  + random.uniform(-.3, .4 ), 2) for _ in dias],
-        "Media do Bairro": [round(media + random.uniform(-.15,.15), 2) for _ in dias],
-    })
-
-def build_reach_df(oferta):
-    horas = [f"{h:02d}h" for h in range(8, 23)]
-    alvo  = oferta.get("alcance", 100)
-    vals, acc = [], 0
-    for h in range(len(horas)):
-        pico = 1 if h in [3,4,5,10,11] else 0
-        acc  = min(acc + random.randint(8+pico*25, 20+pico*60), alvo)
-        vals.append(acc)
-    return pd.DataFrame({"Hora":horas,"Visualizações":vals}).set_index("Hora")
-
-def build_vendas_historico(produto, dias=14):
-    random.seed(hash(produto) % 999)
-    base  = ESTOQUE_DATA[produto]["giro_dia"]
-    datas = [(datetime.today()-timedelta(days=i)).strftime("%d/%m") for i in range(dias-1,-1,-1)]
-    vendas = [max(0, round(base + random.gauss(0, base*0.3))) for _ in datas]
-    return pd.DataFrame({"Data":datas,"Vendas":vendas}).set_index("Data")
-
-DF = build_df()
-
-# ─────────────────────────────────────────────────────────────────
-#  CSS
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  CUSTOM CSS – Navy + Emerald, clean & modern
+# ─────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
 
-  html,body,[class*="css"]{ font-family:'Sora',sans-serif; }
-  .stApp{ background:linear-gradient(160deg,#020f1f 0%,#031a30 60%,#042440 100%); color:#e8f4f8; }
-  [data-testid="stSidebar"]{ background:linear-gradient(180deg,#010d1c,#021525); border-right:1px solid #0d3a5c; }
-  [data-testid="stSidebar"] *{ color:#c8e6f5 !important; }
-  h1,h2,h3{ font-family:'Sora',sans-serif !important; }
-  hr{ border-color:rgba(13,58,92,.6) !important; }
+:root {
+    --navy:    #0B1E3F;
+    --navy2:   #112952;
+    --emerald: #00C48C;
+    --emerald2:#00A876;
+    --gold:    #FFB547;
+    --red:     #FF5252;
+    --bg:      #0D1B2A;
+    --card:    #132237;
+    --card2:   #1A2E48;
+    --text:    #E8EFF7;
+    --muted:   #7A9ABF;
+    --border:  rgba(0,196,140,0.18);
+}
 
-  /* ── Tabs ── */
-  .stTabs [data-baseweb="tab-list"]{ background:rgba(13,58,92,.4); border-radius:12px; padding:4px; gap:4px; border:1px solid rgba(0,200,130,.15); }
-  .stTabs [data-baseweb="tab"]{ background:transparent; border-radius:9px; color:#7fb8d4; font-weight:600; font-size:.88rem; padding:8px 18px; transition:.2s; }
-  .stTabs [data-baseweb="tab"]:hover{ background:rgba(0,200,130,.1); color:#00c882; }
-  .stTabs [aria-selected="true"]{ background:rgba(0,200,130,.18) !important; color:#00c882 !important; border:1px solid rgba(0,200,130,.4) !important; }
-  .stTabs [data-baseweb="tab-panel"]{ padding:20px 0 0; }
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg) !important;
+    color: var(--text) !important;
+}
 
-  /* ── Hero ── */
-  .hero{ background:linear-gradient(135deg,#00c882,#00a86b,#007a50); border-radius:16px; padding:28px 36px; margin-bottom:24px; box-shadow:0 8px 32px rgba(0,200,130,.25); }
-  .hero h1{ color:#fff !important; font-size:2rem !important; font-weight:800 !important; margin:0 0 6px !important; }
-  .hero p{ color:rgba(255,255,255,.9) !important; font-size:1.05rem; margin:0; }
-  .hero-b2b{ background:linear-gradient(135deg,#0a2a4a,#0d3a5c,#042440) !important; border:1px solid rgba(0,200,130,.3); }
-  .hero-tag{ display:inline-block; background:rgba(255,255,255,.2); color:#fff !important; font-size:.72rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; padding:4px 12px; border-radius:20px; margin-bottom:12px; }
+/* hide streamlit chrome */
+#MainMenu, footer, header {visibility: hidden;}
+.block-container {padding: 1.5rem 2.5rem 3rem !important; max-width: 1400px !important;}
 
-  /* ── Metric cards ── */
-  .mc{ background:linear-gradient(145deg,rgba(13,58,92,.6),rgba(4,36,64,.8)); border:1px solid rgba(0,200,130,.2); border-radius:14px; padding:18px 20px; text-align:center; backdrop-filter:blur(8px); transition:.2s; }
-  .mc:hover{ transform:translateY(-3px); box-shadow:0 12px 28px rgba(0,200,130,.15); }
-  .mc .v{ font-size:1.9rem; font-weight:800; color:#00c882; font-family:'JetBrains Mono',monospace; line-height:1.1; }
-  .mc .l{ font-size:.74rem; color:#7fb8d4; text-transform:uppercase; letter-spacing:.08em; margin-top:5px; }
-  .mc-warn .v{ color:#facc15; }
-  .mc-danger .v{ color:#f87171; }
+/* headings */
+h1,h2,h3 { font-family: 'Syne', sans-serif !important; }
 
-  /* ── Section title ── */
-  .st{ font-size:1.05rem; font-weight:700; color:#00c882; text-transform:uppercase; letter-spacing:.1em; margin:26px 0 12px; padding-bottom:8px; border-bottom:1px solid rgba(0,200,130,.25); }
+/* ── HERO HEADER ── */
+.hero {
+    background: linear-gradient(135deg, var(--navy) 0%, #0f3460 60%, #0d2137 100%);
+    border-radius: 18px;
+    padding: 2.2rem 2.8rem;
+    margin-bottom: 1.8rem;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.hero::before {
+    content:'';
+    position:absolute; inset:0;
+    background: radial-gradient(ellipse at 80% 50%, rgba(0,196,140,0.12) 0%, transparent 70%);
+}
+.hero-title {
+    font-family:'Syne',sans-serif;
+    font-size:2.6rem; font-weight:800;
+    background: linear-gradient(90deg, #fff 0%, var(--emerald) 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    margin:0; line-height:1.1;
+}
+.hero-sub { color:var(--muted); font-size:1.05rem; margin-top:.5rem; }
+.hero-badge {
+    display:inline-block; background:rgba(0,196,140,.15);
+    color:var(--emerald); border:1px solid var(--emerald2);
+    border-radius:20px; padding:.25rem .8rem;
+    font-size:.8rem; font-weight:600; letter-spacing:.04em;
+    margin-bottom:.6rem;
+}
 
-  /* ── Price boxes ── */
-  .pb{ border-radius:10px; padding:13px 17px; margin-bottom:7px; }
-  .pb-best{ background:rgba(0,200,130,.10); border:2px solid #00c882; }
-  .pb-norm{ background:rgba(13,58,92,.40); border:1px solid rgba(13,58,92,.8); }
-  .pn-best{ font-weight:700; font-size:.95rem; color:#00c882; }
-  .pn-norm{ font-weight:700; font-size:.95rem; color:#e8f4f8; }
-  .psub{ font-size:.76rem; color:#7fb8d4; margin-top:2px; }
-  .pv{ font-family:'JetBrains Mono',monospace; font-size:1.3rem; font-weight:800; text-align:right; }
-  .pv-best{ color:#00c882; } .pv-norm{ color:#e8f4f8; }
-  .bge{ display:inline-block; background:#00c882; color:#010d1c; font-size:.6rem; font-weight:700; padding:2px 7px; border-radius:20px; text-transform:uppercase; margin-left:5px; vertical-align:middle; }
-  .bgv{ display:inline-block; background:rgba(0,200,130,.15); border:1px solid #00c882; color:#00c882; font-size:.6rem; font-weight:700; padding:2px 7px; border-radius:20px; margin-left:5px; vertical-align:middle; }
+/* ── CARDS ── */
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 1rem;
+}
+.card-sm {
+    background: var(--card2);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    margin-bottom: .6rem;
+}
 
-  /* ── Cards ── */
-  .alert-c{ background:linear-gradient(135deg,rgba(220,38,38,.15),rgba(153,27,27,.2)); border:1px solid rgba(220,38,38,.5); border-left:4px solid #dc2626; border-radius:12px; padding:16px 20px; margin:10px 0; }
-  .alert-t{ color:#fca5a5; font-weight:700; font-size:.82rem; text-transform:uppercase; letter-spacing:.1em; margin-bottom:7px; }
-  .alert-b{ color:#fecaca; font-size:.93rem; line-height:1.6; }
-  .alert-i{ color:#f87171; font-weight:700; font-size:1.05rem; margin-top:7px; }
-  .warn-c{ background:linear-gradient(135deg,rgba(250,204,21,.1),rgba(120,77,5,.18)); border:1px solid rgba(250,204,21,.4); border-left:4px solid #facc15; border-radius:12px; padding:16px 20px; margin:10px 0; }
-  .warn-t{ color:#fcd34d; font-weight:700; font-size:.82rem; text-transform:uppercase; letter-spacing:.1em; margin-bottom:7px; }
-  .warn-b{ color:#fef3c7; font-size:.93rem; line-height:1.6; }
-  .succ-c{ background:linear-gradient(135deg,rgba(0,200,130,.15),rgba(0,120,80,.2)); border:1px solid rgba(0,200,130,.5); border-left:4px solid #00c882; border-radius:12px; padding:16px 20px; margin:10px 0; }
-  .succ-t{ color:#6ee7b7; font-weight:700; font-size:.97rem; margin-bottom:5px; }
-  .succ-b{ color:#a7f3d0; font-size:.88rem; line-height:1.5; }
-  .info-c{ background:rgba(13,58,92,.5); border:1px solid rgba(0,200,130,.2); border-radius:12px; padding:14px 18px; margin:8px 0; }
-  .info-t{ color:#7fb8d4; font-size:.74rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:3px; }
-  .info-b{ color:#e8f4f8; font-size:.93rem; font-weight:500; }
+/* ── METRIC BOXES ── */
+.metric-box {
+    background: linear-gradient(135deg, var(--card) 0%, var(--card2) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.2rem 1.4rem;
+    text-align: center;
+}
+.metric-val { font-family:'Syne',sans-serif; font-size:2rem; font-weight:700; color:var(--emerald); }
+.metric-lbl { font-size:.82rem; color:var(--muted); margin-top:.15rem; }
 
-  /* ── Offer cards ── */
-  .oc{ background:linear-gradient(135deg,rgba(0,200,130,.10),rgba(4,36,64,.9)); border:1px solid rgba(0,200,130,.4); border-radius:14px; padding:16px 20px; margin-bottom:10px; position:relative; overflow:hidden; }
-  .oc-unval{ border-color:rgba(250,204,21,.35); background:linear-gradient(135deg,rgba(250,204,21,.06),rgba(4,36,64,.9)); }
-  .oc-bv{ position:absolute; top:12px; right:14px; background:#00c882; color:#010d1c; font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:20px; text-transform:uppercase; }
-  .oc-bp{ position:absolute; top:12px; right:14px; background:rgba(250,204,21,.18); border:1px solid #facc15; color:#facc15; font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:20px; }
-  .oc-prod{ font-size:1.05rem; font-weight:700; color:#fff; }
-  .oc-loj{ font-size:.76rem; color:#7fb8d4; margin-top:2px; }
-  .oc-pre{ font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:800; color:#00c882; margin-top:5px; }
-  .oc-val{ font-size:.73rem; color:#7fb8d4; margin-top:3px; }
-  .oc-alc{ font-size:.76rem; color:#a7f3d0; margin-top:3px; }
+/* ── PRICE RANKING ── */
+.rank-item {
+    display:flex; align-items:center; justify-content:space-between;
+    background: var(--card2);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 10px;
+    padding: .85rem 1.2rem;
+    margin-bottom: .5rem;
+    transition: border-color .2s;
+}
+.rank-item:hover { border-color: var(--emerald); }
+.rank-badge {
+    width:28px; height:28px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:.85rem;
+    flex-shrink:0; margin-right:.9rem;
+}
+.rank-1 { background:linear-gradient(135deg,#FFB547,#FF8C00); color:#000; }
+.rank-2 { background:linear-gradient(135deg,#aaa,#666); color:#fff; }
+.rank-3 { background:linear-gradient(135deg,#cd7f32,#a0522d); color:#fff; }
+.rank-other { background:var(--card); color:var(--muted); border:1px solid rgba(255,255,255,.1); }
+.rank-name  { flex:1; font-weight:500; font-size:.95rem; }
+.rank-price { font-family:'Syne',sans-serif; font-weight:700; font-size:1.1rem; color:var(--emerald); }
+.rank-best  { font-size:.75rem; color:var(--emerald); background:rgba(0,196,140,.12); padding:.15rem .5rem; border-radius:20px; margin-left:.6rem; }
 
-  /* ── Trust certificate ── */
-  .trust{ background:linear-gradient(135deg,rgba(0,200,130,.15),rgba(0,80,50,.3)); border:2px solid #00c882; border-radius:16px; padding:22px 26px; margin:12px 0; text-align:center; }
-  .trust .sc{ font-family:'JetBrains Mono',monospace; font-size:2.8rem; font-weight:800; color:#00c882; }
-  .trust .sl{ font-size:.76rem; color:#7fb8d4; text-transform:uppercase; letter-spacing:.12em; }
-  .trust .sm{ color:#a7f3d0; font-size:.92rem; margin-top:10px; line-height:1.6; }
-  .trust .ss{ font-size:1.3rem; letter-spacing:4px; margin:7px 0; }
+/* ── OFFER FEED ── */
+.offer-card {
+    background: linear-gradient(135deg, var(--card) 60%, rgba(0,196,140,.08));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: .7rem;
+    position:relative;
+}
+.offer-badge {
+    display:inline-block;
+    background:linear-gradient(90deg,var(--emerald),var(--emerald2));
+    color:#000; font-weight:700; font-size:.72rem;
+    padding:.2rem .6rem; border-radius:20px;
+    text-transform:uppercase; letter-spacing:.05em;
+}
+.offer-flash { color:var(--gold); font-size:.82rem; }
+.score-bar-wrap { background:rgba(255,255,255,.06); border-radius:20px; height:8px; margin-top:.4rem; }
+.score-bar { height:8px; border-radius:20px; background:linear-gradient(90deg,var(--emerald),#00ff9f); }
 
-  /* ── Inventory table rows ── */
-  .inv-ok  { background:rgba(0,200,130,.08); border:1px solid rgba(0,200,130,.25); border-radius:10px; padding:12px 16px; margin-bottom:8px; }
-  .inv-warn{ background:rgba(250,204,21,.07); border:1px solid rgba(250,204,21,.3);  border-radius:10px; padding:12px 16px; margin-bottom:8px; }
-  .inv-risk{ background:rgba(220,38,38,.08);  border:1px solid rgba(220,38,38,.35);  border-radius:10px; padding:12px 16px; margin-bottom:8px; }
-  .inv-label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; font-weight:700; }
-  .inv-ok   .inv-label{ color:#00c882; }
-  .inv-warn .inv-label{ color:#facc15; }
-  .inv-risk .inv-label{ color:#f87171; }
-  .inv-prod { font-size:.97rem; font-weight:700; color:#e8f4f8; margin:3px 0; }
-  .inv-meta { font-size:.78rem; color:#7fb8d4; }
-  .inv-num  { font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; text-align:right; }
-  .inv-ok   .inv-num{ color:#00c882; }
-  .inv-warn .inv-num{ color:#facc15; }
-  .inv-risk .inv-num{ color:#f87171; }
+/* ── POINTS BANNER ── */
+.points-banner {
+    background: linear-gradient(135deg,rgba(255,181,71,.15),rgba(255,181,71,.05));
+    border: 1px solid rgba(255,181,71,.3);
+    border-radius: 12px;
+    padding: 1rem 1.4rem;
+    display:flex; align-items:center; gap:1rem;
+}
+.points-val { font-family:'Syne',sans-serif; font-size:2rem; font-weight:800; color:var(--gold); }
 
-  /* ── Form box ── */
-  .fb{ background:rgba(4,36,64,.7); border:1px solid rgba(0,200,130,.25); border-radius:14px; padding:20px 22px; margin:12px 0; }
-  .fb-title{ color:#00c882; font-weight:700; font-size:.97rem; margin-bottom:12px; }
+/* ── ALERT CARDS ── */
+.alert-warn {
+    background:rgba(255,82,82,.1);
+    border:1px solid rgba(255,82,82,.3);
+    border-radius:10px; padding:.9rem 1.2rem;
+    margin-bottom:.5rem;
+}
+.alert-ok {
+    background:rgba(0,196,140,.08);
+    border:1px solid var(--border);
+    border-radius:10px; padding:.9rem 1.2rem;
+    margin-bottom:.5rem;
+}
 
-  /* ── Opt box ── */
-  .ob{ background:linear-gradient(135deg,rgba(0,200,130,.08),rgba(4,36,64,.8)); border:1px solid rgba(0,200,130,.3); border-radius:14px; padding:20px 22px; margin:12px 0; }
-  .ob-hi{ border-color:rgba(0,200,130,.65) !important; }
-  .ob-title{ color:#00c882; font-weight:700; font-size:.97rem; margin-bottom:10px; }
+/* ── TABS ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap:.5rem;
+    background:var(--card);
+    border-radius:12px; padding:.4rem .5rem;
+    border:1px solid var(--border);
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius:8px !important;
+    color:var(--muted) !important;
+    font-weight:500 !important;
+    font-family:'Inter',sans-serif !important;
+    padding:.45rem 1.2rem !important;
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg,var(--emerald),var(--emerald2)) !important;
+    color:#000 !important; font-weight:700 !important;
+}
 
-  /* ── Rank ── */
-  .rc{ display:flex; align-items:center; gap:12px; background:rgba(13,58,92,.4); border:1px solid rgba(13,58,92,.8); border-radius:10px; padding:11px 16px; margin-bottom:7px; }
-  .rp{ font-family:'JetBrains Mono',monospace; font-size:1rem; font-weight:700; color:#00c882; width:26px; }
-  .rn{ font-weight:600; color:#e8f4f8; flex:1; }
-  .rpt{ font-family:'JetBrains Mono',monospace; font-size:.82rem; color:#7fb8d4; }
+/* ── BUTTONS ── */
+.stButton > button {
+    background: linear-gradient(135deg,var(--emerald),var(--emerald2));
+    color:#000 !important; font-weight:700 !important;
+    border:none !important; border-radius:10px !important;
+    padding:.6rem 1.6rem !important;
+    font-family:'Inter',sans-serif !important;
+    transition: opacity .2s, transform .15s !important;
+}
+.stButton > button:hover { opacity:.88; transform:translateY(-1px); }
 
-  /* ── Buttons ── */
-  .stButton>button{ background:linear-gradient(135deg,#00c882,#00a86b) !important; color:#010d1c !important; font-weight:700 !important; font-family:'Sora',sans-serif !important; border:none !important; border-radius:10px !important; padding:10px 22px !important; box-shadow:0 4px 16px rgba(0,200,130,.3) !important; transition:.2s !important; }
-  .stButton>button:hover{ transform:translateY(-2px) !important; }
-  .stSelectbox>div>div,.stMultiSelect>div>div,.stTextInput>div>div,.stNumberInput>div>div{ background:rgba(13,58,92,.5) !important; border:1px solid rgba(0,200,130,.3) !important; border-radius:10px !important; }
+/* inputs */
+.stTextInput input, .stSelectbox select, .stNumberInput input {
+    background: var(--card2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    color: var(--text) !important;
+}
+.stTextInput input:focus, .stSelectbox select:focus {
+    border-color: var(--emerald) !important;
+    box-shadow: 0 0 0 2px rgba(0,196,140,.2) !important;
+}
 
-  /* ── Live dot ── */
-  .ld{ display:inline-block; width:7px; height:7px; border-radius:50%; background:#00c882; box-shadow:0 0 7px #00c882; margin-right:5px; animation:pulse 1.5s infinite; }
-  @keyframes pulse{ 0%,100%{opacity:1}50%{opacity:.3} }
+/* dataframe */
+.stDataFrame { border-radius: 10px; overflow: hidden; }
+[data-testid="stDataFrameResizable"] { background: var(--card2); }
 
-  /* ── Footer ── */
-  .foot{ text-align:center; padding:18px; color:#2a5a7a; font-size:.73rem; margin-top:36px; border-top:1px solid rgba(13,58,92,.5); }
-  .foot span{ color:#00c882; }
+/* divider */
+hr { border-color: rgba(255,255,255,.06) !important; }
+
+/* section titles */
+.sec-title {
+    font-family:'Syne',sans-serif;
+    font-size:1.15rem; font-weight:700;
+    color:var(--text);
+    margin-bottom: .8rem;
+    display:flex; align-items:center; gap:.5rem;
+}
+.sec-title::after {
+    content:''; flex:1; height:1px;
+    background:linear-gradient(90deg,var(--border),transparent);
+    margin-left:.4rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div style='text-align:center;padding:14px 0 20px'>
-      <div style='font-size:2.2rem;margin-bottom:4px'>💚</div>
-      <div style='font-size:1.35rem;font-weight:800;color:#00c882;letter-spacing:.05em'>4SAVR</div>
-      <div style='font-size:.7rem;color:#5a9ab8;letter-spacing:.12em;text-transform:uppercase'>For Saver · MVP v3.0</div>
-    </div>""", unsafe_allow_html=True)
-    st.markdown("---")
 
-    visao = st.radio("Visão:", ["👤  Consumidor (B2C)","🏪  Lojista Parceiro (B2B)"],
-                     label_visibility="collapsed")
-    st.markdown("---")
+# ─────────────────────────────────────────────
+#  SESSION STATE INITIALIZATION
+# ─────────────────────────────────────────────
+def init_state():
+    defaults = {
+        "consumer_points": 340,
+        "validated_offers": 7,
+        "search_log": {},          # {item: count}
+        "flash_offers": [],
+        "lojista_store": "Condor",
+        "offer_posted": False,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    n_of  = len(st.session_state.ofertas_ativas)
-    n_val = len(st.session_state.precos_validados)
-    top_busca = max(st.session_state.search_counter, key=st.session_state.search_counter.get)
+init_state()
 
+MERCADOS = ["Condor", "Muffato", "Angeloni", "Festival", "Atacadão", "Max Atacadista"]
+ITENS_CESTA = ["Arroz 5kg", "Feijão 1kg", "Óleo 900ml", "Leite 1L", "Açúcar 1kg", "Café 500g"]
+
+MARCAS = {
+    "Arroz 5kg":  ["Tio João", "Camil", "Kika"],
+    "Feijão 1kg": ["Camil", "Coqueiro", "Jurere"],
+    "Óleo 900ml": ["Liza", "Soya", "Salada"],
+    "Leite 1L":   ["Tirol", "Parmalat", "Batavo"],
+    "Açúcar 1kg": ["União", "Guarani", "Caravelas"],
+    "Café 500g":  ["Pilão", "3 Corações", "Melitta"],
+}
+
+# ─────────────────────────────────────────────
+#  MOCK DATA GENERATION (simula scraping diário)
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def gerar_precos_mock():
+    """
+    Simula dados coletados via scraping (BeautifulSoup / Selenium).
+    Em produção, substituir pelo scraper real de cada site.
+    """
+    random.seed(42)
+    base_prices = {
+        "Arroz 5kg":  {"Condor":22.9,"Muffato":21.5,"Angeloni":24.9,"Festival":23.4,"Atacadão":19.9,"Max Atacadista":20.5},
+        "Feijão 1kg": {"Condor":8.9,"Muffato":8.5,"Angeloni":9.9,"Festival":8.7,"Atacadão":7.2,"Max Atacadista":7.5},
+        "Óleo 900ml": {"Condor":7.9,"Muffato":7.5,"Angeloni":8.9,"Festival":7.8,"Atacadão":6.9,"Max Atacadista":7.1},
+        "Leite 1L":   {"Condor":4.9,"Muffato":4.7,"Angeloni":5.4,"Festival":4.8,"Atacadão":4.2,"Max Atacadista":4.3},
+        "Açúcar 1kg": {"Condor":3.9,"Muffato":3.7,"Angeloni":4.2,"Festival":3.8,"Atacadão":3.2,"Max Atacadista":3.4},
+        "Café 500g":  {"Condor":18.9,"Muffato":17.9,"Angeloni":21.5,"Festival":19.2,"Atacadão":15.9,"Max Atacadista":16.5},
+    }
+    rows = []
+    for item, prices in base_prices.items():
+        for mercado, base in prices.items():
+            variacao = random.uniform(-0.05, 0.05)
+            preco = round(base * (1 + variacao), 2)
+            rows.append({
+                "item": item,
+                "mercado": mercado,
+                "preco": preco,
+                "em_oferta": random.random() < 0.2,
+                "estoque": random.choice(["Alto","Médio","Baixo"]),
+                "ultima_atualizacao": datetime.now().strftime("%d/%m %H:%M"),
+            })
+    return pd.DataFrame(rows)
+
+@st.cache_data(ttl=60)
+def gerar_flash_offers():
+    offers = [
+        {"produto":"Arroz 5kg Tio João","mercado":"Condor","preco_de":22.90,"preco_por":17.90,
+         "validade":"Hoje até 22h","score":94,"usuario":"Fernanda R.","validacoes":23},
+        {"produto":"Café Pilão 500g","mercado":"Muffato","preco_de":18.90,"preco_por":13.99,
+         "validade":"Amanhã","score":87,"usuario":"Lojista Oficial","validacoes":41},
+        {"produto":"Leite Tirol 6un","mercado":"Atacadão","preco_de":29.40,"preco_por":22.90,
+         "validade":"Fim de semana","score":91,"usuario":"Carlos M.","validacoes":17},
+        {"produto":"Óleo Liza 900ml","mercado":"Festival","preco_de":7.90,"preco_por":5.99,
+         "validade":"Hoje até 20h","score":78,"usuario":"Ana P.","validacoes":9},
+    ]
+    return offers
+
+@st.cache_data(ttl=120)
+def gerar_tendencia_bairro():
+    items = ITENS_CESTA
+    dias = [(datetime.now() - timedelta(days=i)).strftime("%d/%m") for i in range(6, -1, -1)]
+    rows = []
+    random.seed(7)
+    for item in items:
+        base = random.randint(30, 120)
+        for d in dias:
+            rows.append({"item":item,"dia":d,"buscas":max(5, base + random.randint(-15,20))})
+    return pd.DataFrame(rows)
+
+@st.cache_data(ttl=120)
+def gerar_giro_marcas(item="Café 500g"):
+    marcas = MARCAS.get(item, ["A","B","C"])
+    random.seed(99)
+    data = []
+    for m in marcas:
+        data.append({"marca":m,"buscas":random.randint(40,200),"conversoes":random.randint(10,80)})
+    return pd.DataFrame(data)
+
+@st.cache_data(ttl=120)
+def gerar_historico_precos(mercado="Condor", item="Café 500g"):
+    dias = [(datetime.now()-timedelta(days=i)).strftime("%d/%m") for i in range(29,-1,-1)]
+    random.seed(hash(mercado+item)%100)
+    base = 18.0
+    data = []
+    for d in dias:
+        base += random.uniform(-0.5, 0.5)
+        data.append({"dia":d,"preco":round(base,2)})
+    return pd.DataFrame(data)
+
+# ─────────────────────────────────────────────
+#  PLACEHOLDER DE SCRAPING (estrutura real)
+# ─────────────────────────────────────────────
+def scraper_placeholder(mercado: str, item: str) -> dict | None:
+    """
+    SCRAPER PLACEHOLDER — estrutura pronta para produção.
+    Substituir o bloco 'return mock' pela lógica real de cada site.
+
+    Para ativar:
+      pip install requests beautifulsoup4 selenium playwright
+      playwright install chromium
+
+    Cada mercado tem seu próprio seletor CSS:
+    """
+    SCRAPER_CONFIG = {
+        "Condor":          {"url": "https://www.condor.com.br/busca?q={item}", "css_price": ".price-value"},
+        "Muffato":         {"url": "https://www.muffato.com.br/search?term={item}", "css_price": ".price"},
+        "Angeloni":        {"url": "https://www.angeloni.com.br/super/busca?q={item}", "css_price": ".product-price"},
+        "Festival":        {"url": "https://www.superfestival.com.br/?busca={item}", "css_price": ".preco"},
+        "Atacadão":        {"url": "https://www.atacadao.com.br/search?q={item}", "css_price": ".valornormal"},
+        "Max Atacadista":  {"url": "https://www.maxatacadista.com.br/busca/{item}", "css_price": ".ProductPrice"},
+    }
+    # ── PRODUCTION CODE (uncomment to activate) ──────────────────────────
+    # import requests
+    # from bs4 import BeautifulSoup
+    # cfg = SCRAPER_CONFIG.get(mercado)
+    # if not cfg: return None
+    # url = cfg["url"].format(item=item.replace(" ", "+"))
+    # headers = {"User-Agent": "Mozilla/5.0 (compatible; 4SAVR-bot/1.0)"}
+    # try:
+    #     r = requests.get(url, headers=headers, timeout=10)
+    #     soup = BeautifulSoup(r.text, "html.parser")
+    #     el = soup.select_one(cfg["css_price"])
+    #     price_raw = el.text.strip() if el else None
+    #     price = float(price_raw.replace("R$","").replace(",",".").strip()) if price_raw else None
+    #     return {"mercado": mercado, "item": item, "preco": price, "url": url}
+    # except Exception as e:
+    #     return {"mercado": mercado, "item": item, "preco": None, "erro": str(e)}
+    # ─────────────────────────────────────────────────────────────────────
+    return None   # usa mock em demo
+
+# ─────────────────────────────────────────────
+#  HELPERS DE UI
+# ─────────────────────────────────────────────
+def fmt_brl(v): return f"R$ {v:.2f}".replace(".",",")
+
+def render_rank_list(df_item):
+    df_sorted = df_item.sort_values("preco").reset_index(drop=True)
+    html = ""
+    for i, row in df_sorted.iterrows():
+        rank = i + 1
+        badge_cls = {1:"rank-1",2:"rank-2",3:"rank-3"}.get(rank,"rank-other")
+        badge_txt = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, str(rank))
+        best_tag = '<span class="rank-best">✓ Melhor</span>' if rank == 1 else ""
+        oferta = ' <span style="color:#FFB547;font-size:.75rem">⚡ Oferta</span>' if row.em_oferta else ""
+        html += f"""
+        <div class="rank-item">
+            <div class="rank-badge {badge_cls}">{badge_txt}</div>
+            <div class="rank-name">{row.mercado}{oferta}</div>
+            <div class="rank-price">{fmt_brl(row.preco)}{best_tag}</div>
+        </div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
+def plotly_dark_layout(fig, height=360, showlegend=True):
+    fig.update_layout(
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(13,27,42,0.6)",
+        font=dict(family="Inter", color="#7A9ABF", size=12),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#E8EFF7")) if showlegend else dict(visible=False),
+        margin=dict(l=10,r=10,t=30,b=10),
+        xaxis=dict(gridcolor="rgba(255,255,255,.05)", linecolor="rgba(255,255,255,.08)"),
+        yaxis=dict(gridcolor="rgba(255,255,255,.05)", linecolor="rgba(255,255,255,.08)"),
+    )
+    return fig
+
+
+# ─────────────────────────────────────────────
+#  HERO HEADER
+# ─────────────────────────────────────────────
+st.markdown("""
+<div class="hero">
+  <span class="hero-badge">🛒 MVP · Beta</span>
+  <div class="hero-title">4SAVR</div>
+  <div class="hero-sub">Inteligência de Varejo Alimentar · Cesta Básica em Curitiba & Região</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+#  TABS PRINCIPAIS
+# ─────────────────────────────────────────────
+tab_consumer, tab_lojista = st.tabs(["🛍️  Consumidor", "📊  Lojista / BI"])
+
+df_all = gerar_precos_mock()
+
+# ══════════════════════════════════════════════
+#  TAB 1 — CONSUMIDOR
+# ══════════════════════════════════════════════
+with tab_consumer:
+
+    # ── POINTS BANNER ──────────────────────────
+    pts = st.session_state.consumer_points
+    val = st.session_state.validated_offers
     st.markdown(f"""
-    <div style='padding:11px;background:rgba(0,200,130,.08);border-radius:10px;border:1px solid rgba(0,200,130,.2);margin-bottom:9px'>
-      <div style='font-size:.7rem;color:#5a9ab8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px'>Bairro Ativo</div>
-      <div style='color:#00c882;font-weight:700;font-size:.93rem'>📍 Bairro Boa Vista</div>
-      <div style='color:#7fb8d4;font-size:.76rem;margin-top:2px'>Curitiba – PR</div>
+    <div class="points-banner">
+        <div>
+            <div class="points-val">⭐ {pts}</div>
+            <div style="color:#7A9ABF;font-size:.82rem">Seus pontos acumulados</div>
+        </div>
+        <div style="width:1px;height:48px;background:rgba(255,181,71,.2)"></div>
+        <div>
+            <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:700;color:#FFB547">{val}</div>
+            <div style="color:#7A9ABF;font-size:.82rem">Ofertas validadas</div>
+        </div>
+        <div style="flex:1;padding-left:1rem;color:#7A9ABF;font-size:.9rem">
+            🏆 Você ajudou <b style="color:#FFB547">{val * 3} vizinhos</b> esta semana!
+        </div>
     </div>
-    <div style='padding:11px;background:rgba(13,58,92,.4);border-radius:10px;margin-bottom:9px'>
-      <div style='font-size:.7rem;color:#5a9ab8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px'>Rede em Tempo Real</div>
-      <div style='display:flex;align-items:center;gap:6px;margin-bottom:5px'>
-        <div class='ld'></div><span style='color:#e8f4f8;font-size:.83rem'>5 mercados online</span>
-      </div>
-      <div style='display:flex;justify-content:space-between;margin-bottom:4px'>
-        <span style='color:#7fb8d4;font-size:.78rem'>🔥 Ofertas ativas</span>
-        <span style='color:#00c882;font-weight:700;font-family:monospace'>{n_of}</span>
-      </div>
-      <div style='display:flex;justify-content:space-between;margin-bottom:4px'>
-        <span style='color:#7fb8d4;font-size:.78rem'>✅ Preços validados</span>
-        <span style='color:#00c882;font-weight:700;font-family:monospace'>{n_val}</span>
-      </div>
-      <div style='display:flex;justify-content:space-between'>
-        <span style='color:#7fb8d4;font-size:.78rem'>⭐ Seus pontos</span>
-        <span style='color:#00c882;font-weight:700;font-family:monospace'>{st.session_state.pontos_usuario}</span>
-      </div>
-    </div>
-    <div style='padding:11px;background:rgba(13,58,92,.4);border-radius:10px;margin-bottom:9px'>
-      <div style='font-size:.7rem;color:#5a9ab8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px'>🔥 Mais buscado agora</div>
-      <div style='color:#00c882;font-weight:700;font-size:.88rem'>{PRODUTOS_BASE[top_busca]["emoji"]} {top_busca}</div>
-      <div style='color:#7fb8d4;font-size:.74rem;margin-top:2px'>{st.session_state.search_counter[top_busca]} buscas hoje</div>
-    </div>
-    <div style='margin-top:16px;text-align:center;font-size:.76rem;color:#2a5a7a;font-style:italic;line-height:1.6'>
-      "Onde sua economia<br>fortalece o bairro."
-    </div>""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  VISÃO CONSUMIDOR (B2C)
-# ═══════════════════════════════════════════════════════════════════
-if "Consumidor" in visao:
-
-    st.markdown("""
-    <div class='hero'>
-      <div class='hero-tag'>🛒 Modo Consumidor · v3.0</div>
-      <h1>Economize no seu bairro, hoje</h1>
-      <p>Preços em tempo real · Ofertas validadas pela comunidade · Dados que fortalecem o bairro</p>
-    </div>""", unsafe_allow_html=True)
-
-    c1,c2,c3,c4 = st.columns(4)
-    for col,(v,l) in zip([c1,c2,c3,c4],[
-        ("18,70","Economia média/semana"),
-        (str(n_of),"Ofertas ativas agora"),
-        (str(st.session_state.pontos_usuario),"Seus pontos"),
-        (str(st.session_state.total_validacoes),"Suas validações"),
-    ]):
-        col.markdown(f"<div class='mc'><div class='v'>{v}</div><div class='l'>{l}</div></div>",
-                     unsafe_allow_html=True)
-
-    # ── 🔥 OFERTAS DO LOJISTA ──────────────────────────────────────
-    st.markdown("<div class='st'>🔥 Ofertas Diretas do Lojista</div>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class='info-c'>
-      <div class='info-t'>Como funciona</div>
-      <div class='info-b'>Lojistas parceiros publicam ofertas em tempo real. ✅ <strong>Verificado</strong>
-      = confirmado por foto da comunidade com GPS + Timestamp.</div>
-    </div>""", unsafe_allow_html=True)
-
-    if not st.session_state.ofertas_ativas:
-        st.info("Nenhuma oferta ativa no momento.")
-    else:
-        for i, of in enumerate(st.session_state.ofertas_ativas):
-            val   = of.get("validado", False)
-            cls   = "oc" if val else "oc oc-unval"
-            badge = "<div class='oc-bv'>✅ Verificado</div>" if val else "<div class='oc-bp'>⏳ Pendente</div>"
-            st.markdown(
-                f"<div class='{cls}'>{badge}"
-                f"<div style='display:flex;align-items:flex-start;gap:14px'>"
-                f"  <div style='font-size:2rem;margin-top:2px'>{of['emoji']}</div>"
-                f"  <div>"
-                f"    <div class='oc-prod'>{of['produto']}</div>"
-                f"    <div class='oc-loj'>📍 {of['lojista']} · {of.get('ts','—')}</div>"
-                f"    <div class='oc-pre'>{fmt(of['preco'])}</div>"
-                f"    <div class='oc-val'>⏰ {of['validade']}</div>"
-                f"    <div class='oc-alc'>👁 {of['alcance']} pessoas viram esta oferta</div>"
-                f"  </div></div></div>",
-                unsafe_allow_html=True,
-            )
-            if not val:
-                cb, _ = st.columns([1,4])
-                with cb:
-                    if st.button("📸 Validar oferta", key=f"vo_{i}"):
-                        st.session_state.ofertas_ativas[i]["validado"] = True
-                        st.session_state.pontos_usuario += 30
-                        st.session_state.total_validacoes += 1
-                        st.balloons()
-                        st.success("✅ Oferta validada! +30 pontos. Obrigado por fortalecer o bairro!")
-                        st.rerun()
-
-    st.markdown("---")
-
-    # ── COMPARADOR DE PREÇOS ────────────────────────────────────────
-    st.markdown("<div class='st'>🔍 Comparador de Preços</div>", unsafe_allow_html=True)
-
-    cs, ci = st.columns([2,1])
-    with cs:
-        produto_sel = st.selectbox(
-            "Produto:",
-            list(PRODUTOS_BASE.keys()),
-            format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']}  {x}",
-        )
-    with ci:
-        p = PRODUTOS_BASE[produto_sel]
-        st.markdown(
-            f"<div class='info-c' style='margin-top:28px'>"
-            f"<div class='info-t'>Categoria · Unidade</div>"
-            f"<div class='info-b'>{p['categoria']} · {p['unidade']}</div></div>",
-            unsafe_allow_html=True,
-        )
-
-    # Incrementa contador de busca — alimenta BI do lojista em tempo real
-    st.session_state.search_counter[produto_sel] = \
-        st.session_state.search_counter.get(produto_sel, 0) + 1
-
-    sub         = DF[DF["Produto"]==produto_sel].sort_values("Preco").reset_index(drop=True)
-    menor_preco = sub["Preco"].min()
-    economia_max = round(sub["Preco"].max() - menor_preco, 2)
-
-    for _, row in sub.iterrows():
-        best     = row["Preco"] == menor_preco
-        validado = (produto_sel, row["Mercado"]) in st.session_state.precos_validados
-        bc = "pb pb-best" if best else "pb pb-norm"
-        nc = "pn-best"   if best else "pn-norm"
-        pc = "pv pv-best" if best else "pv pv-norm"
-        bb = "<span class='bge'>Melhor Preço</span>" if best     else ""
-        bv = "<span class='bgv'>✅ Verificado</span>" if validado else ""
-        st.markdown(
-            f"<div class='{bc}'>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-            f"  <div><div class='{nc}'>{row['Mercado']} {bb} {bv}</div>"
-            f"      <div class='psub'>📍 {row['Distancia']} &nbsp;⏱ {row['Timestamp']}</div></div>"
-            f"  <div class='{pc}'>{fmt(row['Preco'])}</div>"
-            f"</div></div>",
-            unsafe_allow_html=True,
-        )
-
-    if economia_max > 0:
-        st.markdown(
-            f"<div class='succ-c'><div class='succ-t'>💡 Economia de {fmt(economia_max)} possível</div>"
-            f"<div class='succ-b'>Comprando no <strong>{sub.iloc[0]['Mercado']}</strong> você economiza "
-            f"<strong>{fmt(economia_max)}</strong> — equivale a "
-            f"<strong>{fmt(economia_max*4)}</strong>/mês comprando 4x.</div></div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-
-    # ── VALIDAÇÃO MULTICANAL ───────────────────────────────────────
-    st.markdown("<div class='st'>📸 Validação Multicanal de Preços</div>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class='info-c'>
-      <div class='info-t'>Crowdsourcing de Confiança</div>
-      <div class='info-b'>Suas fotos validam preços para toda a comunidade e geram
-      dados reais que o lojista usa para tomar decisões. Você é parte da inteligência do bairro.</div>
-    </div>""", unsafe_allow_html=True)
-
-    tipo_up = st.radio("Tipo de envio:", [
-        "🧾  Nota Fiscal (NF) – Leitura de preço de compra",
-        "🏷️  Gôndola / Anúncio Físico – Validação de promoção",
-    ], label_visibility="collapsed")
-
-    cu1, cu2 = st.columns(2)
-    with cu1:
-        prod_val = st.selectbox("Produto:", list(PRODUTOS_BASE.keys()),
-                                format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}", key="pv")
-        merc_val = st.selectbox("Mercado:", list(MERCADOS.keys()), key="mv")
-    with cu2:
-        st.markdown("""
-        <div class='info-c' style='margin-top:4px;border-style:dashed'>
-          <div class='info-t'>📤 Simulando upload de imagem</div>
-          <div class='info-b' style='font-size:.82rem'>No app real: câmera abre com geolocalização
-          ativada, OCR extrai dados automaticamente e assina com hash criptográfico.</div>
-        </div>""", unsafe_allow_html=True)
-
-    ce, _ = st.columns([1,3])
-    with ce:
-        tipo_label = "NF" if "Nota Fiscal" in tipo_up else "Gôndola"
-        if st.button(f"📤 Simular Foto de {tipo_label}", use_container_width=True):
-            with st.spinner("🤖 Analisando imagem com IA…"):
-                prog  = st.progress(0)
-                etapas = ["Detectando produto…","Lendo preço…","Validando GPS…","Confirmando timestamp…","Gerando certificado…"]
-                for pct, et in zip(range(0,101,20), etapas):
-                    time.sleep(0.28)
-                    prog.progress(pct, text=et)
-                prog.empty()
-
-            chave = (prod_val, merc_val)
-            st.session_state.precos_validados.add(chave)
-            st.session_state.pontos_usuario    += 50
-            st.session_state.total_validacoes  += 1
-            preco_val_item = PRECOS_BASE[prod_val][list(MERCADOS.keys()).index(merc_val)]
-            st.balloons()
-            st.success(f"✅ Você fez o bairro mais inteligente! +50 pontos creditados.")
-            tipo_txt = "Nota Fiscal" if "Nota Fiscal" in tipo_up else "Foto de Gôndola"
-            st.markdown(
-                f"<div class='trust'>"
-                f"<div class='sl'>Trust Score — {tipo_txt}</div>"
-                f"<div class='ss'>⭐⭐⭐⭐⭐</div>"
-                f"<div class='sc'>9.8<span style='font-size:1.1rem;color:#7fb8d4'>/10</span></div>"
-                f"<div class='sm'>Foto validada via <strong>GPS + Timestamp</strong>.<br>"
-                f"O preço de <strong>{fmt(preco_val_item)}</strong> no <strong>{merc_val}</strong>"
-                f" é agora <strong>oficial para todo o bairro!</strong> 🎉</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("---")
-
-    # ── OTIMIZADOR DE CESTA ────────────────────────────────────────
-    st.markdown("<div class='st'>🧺 Otimizador de Cesta</div>", unsafe_allow_html=True)
-    itens_sel = st.multiselect(
-        "Produtos:",
-        list(PRODUTOS_BASE.keys()),
-        default=list(PRODUTOS_BASE.keys())[:3],
-        format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}",
-        max_selections=5,
-    )
-    if itens_sel:
-        mlist  = list(MERCADOS.keys())
-        totais = sorted([(m, sum(PRECOS_BASE[p][i] for p in itens_sel))
-                         for i,m in enumerate(mlist)], key=lambda x: x[1])
-        bm, bt  = totais[0];  sm, _ = totais[1]
-        mid     = max(len(itens_sel)//2, 1)
-        ia, ib  = mlist.index(bm), mlist.index(sm)
-        tdiv    = (sum(PRECOS_BASE[p][ia] for p in itens_sel[:mid])
-                 + sum(PRECOS_BASE[p][ib] for p in itens_sel[mid:]))
-        ediv    = max(round(bt - tdiv, 2), 0)
-        xdist   = random.randint(300,600)
-        o1,o2   = st.columns(2)
-        with o1:
-            st.markdown(
-                f"<div class='ob'><div class='ob-title'>🏪 Compra única</div>"
-                f"<table style='width:100%;font-size:.86rem;border-spacing:0 5px'>"
-                f"<tr><td style='color:#7fb8d4'>Melhor mercado</td><td style='text-align:right;font-weight:700;color:#e8f4f8'>{bm[:22]}</td></tr>"
-                f"<tr><td style='color:#7fb8d4'>Total</td><td style='text-align:right;font-weight:700;color:#e8f4f8'>{fmt(bt)}</td></tr>"
-                f"<tr><td style='color:#7fb8d4'>Distância extra</td><td style='text-align:right;font-weight:700;color:#e8f4f8'>0m</td></tr>"
-                f"</table></div>",
-                unsafe_allow_html=True,
-            )
-        with o2:
-            st.markdown(
-                f"<div class='ob ob-hi'><div class='ob-title'>🗺️ Dividir entre 2</div>"
-                f"<table style='width:100%;font-size:.86rem;border-spacing:0 5px'>"
-                f"<tr><td style='color:#7fb8d4'>{bm[:14]}+{sm[:12]}</td><td></td></tr>"
-                f"<tr><td style='color:#7fb8d4'>Total</td><td style='text-align:right;font-weight:700;color:#e8f4f8'>{fmt(tdiv)}</td></tr>"
-                f"<tr><td style='color:#7fb8d4'>+Distância</td><td style='text-align:right;font-weight:700;color:#e8f4f8'>+{xdist}m</td></tr>"
-                f"</table>"
-                f"<div style='text-align:center;margin-top:12px'>"
-                f"  <div style='font-size:.73rem;color:#7fb8d4;margin-bottom:2px'>Economia ao dividir</div>"
-                f"  <div style='font-family:monospace;font-size:1.4rem;font-weight:800;color:#00c882'>+ {fmt(ediv)} 💚</div>"
-                f"</div></div>",
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("---")
-
-    # ── RANKING ────────────────────────────────────────────────────
-    st.markdown("<div class='st'>🏆 Embaixadores de Economia do Bairro</div>", unsafe_allow_html=True)
-    ranking = sorted(
-        EMBAIXADORES + [{"nome":"Você 🎯","pts":st.session_state.pontos_usuario,"badge":"🟢"}],
-        key=lambda x: x["pts"], reverse=True,
-    )
-    for i, emb in enumerate(ranking):
-        dest = "border-color:rgba(0,200,130,.6);background:rgba(0,200,130,.07);" if emb["nome"]=="Você 🎯" else ""
-        st.markdown(
-            f"<div class='rc' style='{dest}'>"
-            f"<div class='rp'>#{i+1}</div>"
-            f"<div style='font-size:1.1rem'>{emb['badge']}</div>"
-            f"<div class='rn'>{emb['nome']}</div>"
-            f"<div class='rpt'>{emb['pts']:,} pts</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  VISÃO LOJISTA (B2B) — com st.tabs
-# ═══════════════════════════════════════════════════════════════════
-else:
-    st.markdown("""
-    <div class='hero hero-b2b'>
-      <div class='hero-tag'>🏪 Lojista Parceiro · v3.0</div>
-      <h1>BI, Estoque e Inteligência Competitiva</h1>
-      <p>Lance promoções · Monitore o bairro · Gerencie estoque com dados reais</p>
-    </div>""", unsafe_allow_html=True)
-
-    n_of    = len(st.session_state.ofertas_ativas)
-    n_val   = sum(1 for o in st.session_state.ofertas_ativas if o.get("validado"))
-    t_alc   = sum(o.get("alcance",0) for o in st.session_state.ofertas_ativas)
-    n_risco = sum(1 for e in ESTOQUE_DATA.values() if e["status"]=="risco")
-
-    c1,c2,c3,c4 = st.columns(4)
-    for col,(v,l,extra) in zip([c1,c2,c3,c4],[
-        (str(n_of),"Ofertas ativas",""),
-        (str(n_val),"Verificadas",""),
-        (str(t_alc),"Alcance total hoje",""),
-        (str(n_risco),"Alertas de estoque","mc-danger"),
-    ]):
-        col.markdown(f"<div class='mc {extra}'><div class='v'>{v}</div><div class='l'>{l}</div></div>",
-                     unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ══ TABS ══════════════════════════════════════════════════════
-    tab1, tab2, tab3 = st.tabs([
-        "📣  Promoções & Alcance",
-        "📊  Análise de Mercado",
-        "📦  Gestão de Estoque",
-    ])
+    col_left, col_right = st.columns([3, 2], gap="large")
 
-    # ─────────────────────────────────────────────────────────────
-    #  TAB 1 — PROMOÇÕES & ALCANCE
-    # ─────────────────────────────────────────────────────────────
-    with tab1:
+    # ── LEFT COLUMN ─────────────────────────────
+    with col_left:
 
-        # ── Lançar Nova Oferta ─────────────────────────────────
-        st.markdown("<div class='st'>📣 Lançar Nova Oferta</div>", unsafe_allow_html=True)
-        st.markdown("<div class='fb'>", unsafe_allow_html=True)
-        st.markdown("<div class='fb-title'>✏️ Configure o anúncio</div>", unsafe_allow_html=True)
+        # ── 1. CONSULTA DE PREÇOS ──────────────
+        st.markdown('<div class="sec-title">🔍 Comparar Preços por Item</div>', unsafe_allow_html=True)
 
-        f1, f2 = st.columns(2)
-        with f1:
-            novo_prod = st.selectbox("Produto:", list(PRODUTOS_BASE.keys()),
-                                     format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}", key="np")
-            p_orig    = PRECOS_BASE[novo_prod][0]
-            novo_preco = st.number_input("Preço promocional:", min_value=0.50,
-                                         max_value=float(p_orig)*1.5,
-                                         value=round(p_orig*0.92, 2), step=0.10, key="npr")
-        with f2:
-            nova_val  = st.selectbox("Validade:", ["Hoje, até 22h","Amanhã, dia todo",
-                                                   "Este fim de semana","Próximos 3 dias"], key="nv")
-            raio      = st.slider("Raio (m):", 200, 1000, 500, 50, key="raio")
+        with st.container():
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                item_sel = st.selectbox("Produto", ITENS_CESTA, label_visibility="collapsed")
+            with c2:
+                buscar = st.button("Buscar Preços", use_container_width=True)
 
-        desc_pct    = round((p_orig - novo_preco)/p_orig*100, 1)
-        alc_est     = int(raio*1.8 + random.randint(60,140))
-        hora_atual  = datetime.now().strftime("%Hh%M")
-        enovo       = PRODUTOS_BASE[novo_prod]["emoji"]
-        pns         = f"{novo_preco:.2f}".replace(".",",")
-        pos         = f"{p_orig:.2f}".replace(".",",")
+            if buscar or item_sel:
+                # registra busca no log (para BI do lojista)
+                st.session_state.search_log[item_sel] = st.session_state.search_log.get(item_sel, 0) + 1
 
-        st.markdown(
-            f"<div style='margin-top:10px;padding:14px;background:rgba(0,200,130,.06);"
-            f"border:1px dashed rgba(0,200,130,.3);border-radius:11px'>"
-            f"<div style='font-size:.7rem;color:#5a9ab8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:9px'>Preview ao vivo</div>"
-            f"<div style='display:flex;align-items:center;gap:14px'>"
-            f"<div style='font-size:2rem'>{enovo}</div>"
-            f"<div><div style='font-weight:700;color:#fff;font-size:.97rem'>{novo_prod}</div>"
-            f"<div style='font-family:monospace;font-size:1.45rem;font-weight:800;color:#00c882'>R&#36;&nbsp;{pns}</div>"
-            f"<div style='font-size:.76rem;color:#fca5a5'><s>R&#36;&nbsp;{pos}</s>"
-            f"&nbsp;<span style='color:#00c882;font-weight:700'>{desc_pct:.1f}% OFF</span></div>"
-            f"<div style='font-size:.73rem;color:#7fb8d4;margin-top:2px'>⏰ {nova_val} &nbsp;·&nbsp; 👁 ~{alc_est} visualizações</div>"
-            f"</div></div></div>",
-            unsafe_allow_html=True,
+                df_item = df_all[df_all.item == item_sel].copy()
+
+                with st.spinner("Atualizando preços..."):
+                    time.sleep(0.3)
+
+                render_rank_list(df_item)
+
+                # mini stats
+                m1, m2, m3 = st.columns(3)
+                min_p = df_item.preco.min()
+                max_p = df_item.preco.max()
+                eco = max_p - min_p
+                m1.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(min_p)}</div><div class="metric-lbl">Menor preço</div></div>', unsafe_allow_html=True)
+                m2.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(max_p)}</div><div class="metric-lbl">Maior preço</div></div>', unsafe_allow_html=True)
+                m3.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(eco)}</div><div class="metric-lbl">Você economiza</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── 2. MELHOR CESTA COMPLETA ───────────
+        st.markdown('<div class="sec-title">🧺 Menor Preço da Cesta Completa</div>', unsafe_allow_html=True)
+
+        if st.button("🧮 Calcular Melhor Mercado para a Cesta", use_container_width=True):
+            with st.spinner("Calculando..."):
+                time.sleep(0.5)
+            totais = df_all.groupby("mercado")["preco"].sum().reset_index()
+            totais.columns = ["mercado","total_cesta"]
+            totais = totais.sort_values("total_cesta").reset_index(drop=True)
+            vencedor = totais.iloc[0]
+            segundo  = totais.iloc[1]
+            economia = round(segundo.total_cesta - vencedor.total_cesta, 2)
+
+            st.markdown(f"""
+            <div class="card" style="border-color:var(--emerald);border-width:2px">
+                <div style="font-size:.82rem;color:var(--muted);margin-bottom:.3rem">🏆 MELHOR MERCADO PARA CESTA COMPLETA</div>
+                <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--emerald)">{vencedor.mercado}</div>
+                <div style="font-size:1.5rem;font-weight:700;color:#fff;margin:.2rem 0">{fmt_brl(vencedor.total_cesta)}</div>
+                <div style="color:var(--gold);font-size:.92rem">💰 Você economiza <b>{fmt_brl(economia)}</b> vs. {segundo.mercado}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            fig = px.bar(
+                totais, x="mercado", y="total_cesta",
+                color="total_cesta",
+                color_continuous_scale=["#00C48C","#0B1E3F"],
+                labels={"total_cesta":"Total (R$)","mercado":"Mercado"},
+                title="Custo Total da Cesta Básica por Mercado"
+            )
+            fig = plotly_dark_layout(fig, showlegend=False)
+            fig.update_coloraxes(showscale=False)
+            fig.update_traces(text=[fmt_brl(v) for v in totais.total_cesta], textposition="outside",
+                              marker_line_width=0)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── 3. VALIDAÇÃO DE OFERTA ─────────────
+        st.markdown('<div class="sec-title">📸 Validar Oferta (Upload / Foto)</div>', unsafe_allow_html=True)
+
+        with st.container():
+            c1, c2 = st.columns(2)
+            with c1:
+                mercado_val = st.selectbox("Mercado", MERCADOS, key="val_mercado")
+                item_val    = st.selectbox("Produto", ITENS_CESTA, key="val_item")
+                preco_val   = st.number_input("Preço visto (R$)", min_value=0.01, value=15.99, step=0.01, key="val_preco")
+            with c2:
+                foto_val = st.file_uploader("📷 Foto ou Nota Fiscal (opcional)", type=["jpg","jpeg","png","pdf"], key="foto_upload")
+                st.markdown('<div style="color:var(--muted);font-size:.82rem;margin-top:.3rem">Opcional — aumenta o Score de Confiança</div>', unsafe_allow_html=True)
+
+            if st.button("✅ Enviar Validação", use_container_width=True, key="btn_validar"):
+                with st.spinner("Verificando localização e timestamp..."):
+                    time.sleep(0.8)
+
+                score_base = 65
+                if foto_val: score_base += 20
+                score_base += random.randint(0, 15)
+                score = min(score, 99) if (score := score_base) > 99 else score_base
+
+                st.session_state.consumer_points += 50
+                st.session_state.validated_offers += 1
+
+                st.markdown(f"""
+                <div class="card" style="border-color:var(--emerald)">
+                    <div style="font-size:.9rem;color:var(--emerald);font-weight:600;margin-bottom:.6rem">✅ Oferta validada com sucesso! +50 pontos</div>
+                    <div style="display:flex;align-items:center;gap:.8rem">
+                        <div style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;color:{'#00C48C' if score>=80 else '#FFB547'}">{score}%</div>
+                        <div>
+                            <div style="font-weight:500">{mercado_val} · {item_val} · {fmt_brl(preco_val)}</div>
+                            <div style="color:var(--muted);font-size:.82rem">Score de Confiança (geo + timestamp + foto)</div>
+                        </div>
+                    </div>
+                    <div class="score-bar-wrap"><div class="score-bar" style="width:{score}%"></div></div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.rerun()
+
+    # ── RIGHT COLUMN ────────────────────────────
+    with col_right:
+
+        # ── FEED DE OFERTAS RELÂMPAGO ──────────
+        st.markdown('<div class="sec-title">⚡ Ofertas Relâmpago</div>', unsafe_allow_html=True)
+
+        offers = gerar_flash_offers()
+        for o in offers:
+            desc = round((1 - o["preco_por"]/o["preco_de"])*100)
+            st.markdown(f"""
+            <div class="offer-card">
+                <span class="offer-badge">⚡ -{desc}% OFF</span>
+                <div style="font-weight:600;margin:.4rem 0 .1rem">{o['produto']}</div>
+                <div style="color:var(--muted);font-size:.85rem">{o['mercado']}</div>
+                <div style="display:flex;align-items:baseline;gap:.5rem;margin:.35rem 0">
+                    <span style="text-decoration:line-through;color:var(--muted);font-size:.9rem">{fmt_brl(o['preco_de'])}</span>
+                    <span style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;color:var(--emerald)">{fmt_brl(o['preco_por'])}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted)">
+                    <span>🕐 {o['validade']}</span>
+                    <span>👍 {o['validacoes']} confirmaram</span>
+                </div>
+                <div style="font-size:.78rem;color:var(--muted);margin-top:.3rem">por {o['usuario']}</div>
+                <div class="score-bar-wrap" style="margin-top:.5rem"><div class="score-bar" style="width:{o['score']}%"></div></div>
+                <div style="font-size:.75rem;color:var(--muted);text-align:right;margin-top:.2rem">Score {o['score']}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── TENDÊNCIA DE BUSCAS ────────────────
+        st.markdown('<div class="sec-title">📈 Mais Buscados Hoje</div>', unsafe_allow_html=True)
+
+        busca_counts = {i: st.session_state.search_log.get(i, random.randint(20,120)) for i in ITENS_CESTA}
+        df_bc = pd.DataFrame(list(busca_counts.items()), columns=["item","buscas"]).sort_values("buscas", ascending=True)
+
+        fig_bc = px.bar(df_bc, x="buscas", y="item", orientation="h",
+                        color_discrete_sequence=["#00C48C"])
+        fig_bc = plotly_dark_layout(fig_bc, height=280, showlegend=False)
+        fig_bc.update_traces(marker_line_width=0)
+        st.plotly_chart(fig_bc, use_container_width=True, config={"displayModeBar":False})
+
+
+# ══════════════════════════════════════════════
+#  TAB 2 — LOJISTA / BI
+# ══════════════════════════════════════════════
+with tab_lojista:
+
+    # ── STORE SELECTOR ────────────────────────
+    col_store, col_space = st.columns([2, 5])
+    with col_store:
+        st.session_state.lojista_store = st.selectbox(
+            "Sua loja:", MERCADOS, index=MERCADOS.index(st.session_state.lojista_store)
         )
-        st.markdown("</div>", unsafe_allow_html=True)
 
-        cb, _ = st.columns([1,3])
-        with cb:
-            if st.button("🚀 Publicar Oferta Agora", use_container_width=True):
-                st.session_state.ofertas_ativas.append({
-                    "produto":novo_prod,"preco":novo_preco,"validade":nova_val,
-                    "lojista":"Mercado Boa Vista","emoji":enovo,
-                    "validado":False,"alcance":alc_est,"ts":hora_atual,
-                })
-                st.balloons()
-                st.success(
-                    f"✅ Oferta publicada! {enovo} **{novo_prod}** por **{rr(novo_preco)}** "
-                    f"está visível para **{alc_est} consumidores** num raio de {raio}m. "
-                    f"Peça um cliente para validar com foto e eleve o Trust Score!"
-                )
+    loja = st.session_state.lojista_store
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("---")
+    # ── KPI ROW ───────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
+    kpis = [
+        ("📦", "127", "Produtos monitorados"),
+        ("⚡", "3",   "Alertas ativos"),
+        ("👁️",  "842", "Visualizações hoje"),
+        ("💰", "R$ 1.247", "Economia gerada/dia"),
+    ]
+    for col, (icon, val, lbl) in zip([k1,k2,k3,k4], kpis):
+        col.markdown(f"""
+        <div class="metric-box">
+            <div style="font-size:1.6rem">{icon}</div>
+            <div class="metric-val" style="font-size:1.6rem">{val}</div>
+            <div class="metric-lbl">{lbl}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # ── Alcance das Ofertas ────────────────────────────────
-        st.markdown("<div class='st'>📈 Alcance das Ofertas Ativas</div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        if not st.session_state.ofertas_ativas:
-            st.info("Nenhuma oferta ativa ainda.")
+    col_bi1, col_bi2 = st.columns(2, gap="large")
+
+    # ── BI LEFT ──────────────────────────────
+    with col_bi1:
+
+        # ── PAINEL COMPETITIVO ────────────────
+        st.markdown('<div class="sec-title">🏁 Painel Competitivo de Preços</div>', unsafe_allow_html=True)
+
+        item_comp = st.selectbox("Produto para comparar:", ITENS_CESTA, key="comp_item")
+        df_comp   = df_all[df_all.item == item_comp].copy()
+        df_comp["minha_loja"] = df_comp.mercado == loja
+
+        colors = [("#00C48C" if r else "#264D73") for r in df_comp.minha_loja]
+        fig_comp = go.Figure(go.Bar(
+            x=df_comp.mercado,
+            y=df_comp.preco,
+            marker_color=colors,
+            text=[fmt_brl(v) for v in df_comp.preco],
+            textposition="outside",
+        ))
+        fig_comp = plotly_dark_layout(fig_comp, height=320, showlegend=False)
+        fig_comp.update_layout(title=f"Preço de {item_comp} — verde = {loja}")
+        fig_comp.update_traces(marker_line_width=0)
+        st.plotly_chart(fig_comp, use_container_width=True, config={"displayModeBar":False})
+
+        meu_preco  = df_comp[df_comp.mercado == loja].preco.values[0]
+        min_preco  = df_comp.preco.min()
+        rival_min  = df_comp[df_comp.mercado != loja].preco.min()
+        rival_nome = df_comp[df_comp.preco == rival_min].mercado.values[0]
+
+        if meu_preco <= min_preco:
+            st.markdown(f'<div class="alert-ok">✅ <b>{loja}</b> tem o <b>menor preço</b> do mercado para {item_comp}! Ótima posição.</div>', unsafe_allow_html=True)
         else:
-            sel_idx = st.selectbox(
-                "Oferta:",
-                range(len(st.session_state.ofertas_ativas)),
-                format_func=lambda i: (
-                    f"{st.session_state.ofertas_ativas[i]['emoji']} "
-                    f"{st.session_state.ofertas_ativas[i]['produto']} — "
-                    + rr(st.session_state.ofertas_ativas[i]['preco'])
-                ),
-                key="sel_of",
-            )
-            od      = st.session_state.ofertas_ativas[sel_idx]
-            conv    = round(random.uniform(6.5,14.2), 1)
-            vt      = od["validado"]
-            vc, vl  = ("✅ Verificada","#00c882") if vt else ("⏳ Pendente","#facc15")
+            diff = round(meu_preco - rival_min, 2)
+            st.markdown(f'<div class="alert-warn">⚠️ <b>{rival_nome}</b> está {fmt_brl(diff)} mais barato em <b>{item_comp}</b>. Considere ajustar o preço.</div>', unsafe_allow_html=True)
 
-            r1,r2,r3 = st.columns(3)
-            r1.markdown(f"<div class='mc'><div class='v'>{od['alcance']}</div><div class='l'>Visualizações</div></div>", unsafe_allow_html=True)
-            r2.markdown(f"<div class='mc'><div class='v'>{conv}%</div><div class='l'>Taxa de conversão</div></div>", unsafe_allow_html=True)
-            r3.markdown(f"<div class='mc'><div class='v' style='color:{vl};font-size:1.1rem'>{vc}</div><div class='l'>Status</div></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
-            random.seed(sel_idx+7)
-            st.area_chart(build_reach_df(od), use_container_width=True, height=200)
+        # ── HISTÓRICO DE PREÇOS ───────────────
+        st.markdown('<div class="sec-title">📉 Histórico de Preços (30 dias)</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        df_hist = gerar_historico_precos(loja, item_comp)
+        fig_hist = px.area(df_hist, x="dia", y="preco", line_shape="spline",
+                           color_discrete_sequence=["#00C48C"])
+        fig_hist.update_traces(fill="tozeroy", fillcolor="rgba(0,196,140,.12)", line=dict(width=2))
+        fig_hist = plotly_dark_layout(fig_hist, height=240, showlegend=False)
+        fig_hist.update_layout(xaxis=dict(tickangle=-45, nticks=10))
+        st.plotly_chart(fig_hist, use_container_width=True, config={"displayModeBar":False})
 
-        # ── Alertas ────────────────────────────────────────────
-        st.markdown("<div class='st'>🚨 Alertas de Mercado</div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='alert-c'>
-          <div class='alert-t'>⚠️ Perda de Conversão Detectada</div>
-          <div class='alert-b'>Você perdeu <strong>12% de conversão</strong> em
-          <strong>Café Torrado 500g</strong>. O concorrente <em>Mini Box Econômico</em>
-          a 300m baixou o preço em <strong>R&#36;&nbsp;0,40</strong> às 09h15.</div>
-          <div class='alert-i'>📉 Impacto estimado: -R&#36;&nbsp;280 em vendas hoje</div>
-        </div>""", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='warn-c'>
-          <div class='warn-t'>⚡ Oportunidade: Ruptura no Concorrente</div>
-          <div class='warn-b'><em>Atacado do Bairro</em> está sem
-          <strong>Óleo de Soja 900ml</strong> desde às 11h00.
-          Consumidores buscam alternativa num raio de 700m.</div>
-        </div>""", unsafe_allow_html=True)
+    # ── BI RIGHT ─────────────────────────────
+    with col_bi2:
 
-    # ─────────────────────────────────────────────────────────────
-    #  TAB 2 — ANÁLISE DE MERCADO
-    # ─────────────────────────────────────────────────────────────
-    with tab2:
+        # ── GIRO DE MARCAS ────────────────────
+        st.markdown('<div class="sec-title">📊 Giro de Marcas (Demanda no App)</div>', unsafe_allow_html=True)
 
-        # ── Tendências de Busca (Data-Driven, em tempo real) ───
-        st.markdown("<div class='st'>🔍 Tendências de Busca no Bairro</div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='info-c'>
-          <div class='info-t'>Dados em tempo real</div>
-          <div class='info-b'>Este gráfico se atualiza conforme os consumidores buscam produtos
-          no app. Cada busca na Visão Consumidor incrementa o contador aqui. Use isso para
-          decidir quais produtos impulsionar.</div>
-        </div>""", unsafe_allow_html=True)
+        item_marca = st.selectbox("Produto:", ITENS_CESTA, key="marca_item")
+        df_marcas  = gerar_giro_marcas(item_marca)
 
-        busca_df = (
-            pd.DataFrame.from_dict(
-                st.session_state.search_counter, orient="index", columns=["Buscas"]
-            )
-            .sort_values("Buscas", ascending=False)
-        )
-        busca_df.index = [f"{PRODUTOS_BASE[p]['emoji']} {p[:22]}" for p in busca_df.index]
+        fig_marcas = go.Figure()
+        fig_marcas.add_trace(go.Bar(name="Buscas", x=df_marcas.marca, y=df_marcas.buscas,
+                                     marker_color="#264D73"))
+        fig_marcas.add_trace(go.Bar(name="Compras", x=df_marcas.marca, y=df_marcas.conversoes,
+                                     marker_color="#00C48C"))
+        fig_marcas.update_layout(barmode="group")
+        fig_marcas = plotly_dark_layout(fig_marcas, height=280)
+        fig_marcas.update_traces(marker_line_width=0)
+        st.plotly_chart(fig_marcas, use_container_width=True, config={"displayModeBar":False})
 
-        col_bg, col_bi = st.columns([3,1])
-        with col_bg:
-            st.bar_chart(busca_df, use_container_width=True, height=280)
-        with col_bi:
-            top3 = busca_df.head(3)
-            st.markdown("<div style='margin-top:8px'>", unsafe_allow_html=True)
-            for rank,(idx,row) in enumerate(top3.iterrows()):
-                medals = ["🥇","🥈","🥉"]
-                st.markdown(
-                    f"<div style='background:rgba(0,200,130,.08);border:1px solid rgba(0,200,130,.2);"
-                    f"border-radius:10px;padding:10px 14px;margin-bottom:8px'>"
-                    f"<div style='font-size:.7rem;color:#7fb8d4;text-transform:uppercase'>#{rank+1} mais buscado</div>"
-                    f"<div style='font-weight:700;color:#e8f4f8;font-size:.88rem;margin-top:3px'>{medals[rank]} {idx}</div>"
-                    f"<div style='font-family:monospace;color:#00c882;font-weight:700'>{int(row['Buscas'])} buscas</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("---")
+        # ── ALERTAS DE PERDA / VALIDADE ───────
+        st.markdown('<div class="sec-title">🚨 Gestão de Perdas & Validade</div>', unsafe_allow_html=True)
 
-        # ── Performance de Marcas ──────────────────────────────
-        st.markdown("<div class='st'>🏷️ Performance de Marcas por Produto</div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='info-c'>
-          <div class='info-t'>Como usar</div>
-          <div class='info-b'>Compare vendas vs. margem de lucro por marca. Marcas com
-          <strong>alta margem e baixa venda</strong> precisam de ação promocional.
-          Marcas com <strong>alta venda e baixa margem</strong> são âncoras de tráfego.</div>
-        </div>""", unsafe_allow_html=True)
+        alertas = [
+            {"produto":"Leite Tirol 1L","estoque":"Baixa saída","dias":3,"severidade":"alta"},
+            {"produto":"Pão de Forma Wickbold","estoque":"Crítico","dias":1,"severidade":"critica"},
+            {"produto":"Iogurte Natural Batavo","estoque":"Moderado","dias":5,"severidade":"media"},
+        ]
 
-        prod_marcas = st.selectbox(
-            "Produto para análise de marcas:",
-            list(MARCAS_DATA.keys()),
-            format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}",
-            key="pm",
-        )
-        md = MARCAS_DATA[prod_marcas]
+        for a in alertas:
+            border = {"alta":"rgba(255,82,82,.4)","critica":"rgba(255,82,82,.7)","media":"rgba(255,181,71,.4)"}[a["severidade"]]
+            icon   = {"alta":"⚠️","critica":"🔴","media":"🟡"}[a["severidade"]]
+            action = f'<span style="color:var(--emerald);cursor:pointer;font-size:.8rem">→ Lançar Promoção Relâmpago</span>'
+            st.markdown(f"""
+            <div class="card-sm" style="border-color:{border}">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <span style="font-weight:600">{icon} {a['produto']}</span>
+                        <div style="color:var(--muted);font-size:.8rem">{a['estoque']} · vence em {a['dias']} dia(s)</div>
+                    </div>
+                    {action}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        m1, m2 = st.columns(2)
-        with m1:
-            st.markdown("<div style='font-size:.78rem;color:#7fb8d4;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px'>📦 Volume de Vendas (unid/semana)</div>", unsafe_allow_html=True)
-            df_v = pd.DataFrame({"Vendas":md["vendas"]}, index=md["marcas"])
-            st.bar_chart(df_v, use_container_width=True, height=220)
-        with m2:
-            st.markdown("<div style='font-size:.78rem;color:#7fb8d4;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px'>💰 Margem de Lucro (%)</div>", unsafe_allow_html=True)
-            df_m = pd.DataFrame({"Margem (%)":md["margem"]}, index=md["marcas"])
-            st.bar_chart(df_m, use_container_width=True, height=220)
+        st.markdown("<br>", unsafe_allow_html=True)
 
-        # Tabela síntese com análise automática
-        st.markdown("<div style='margin-top:6px;font-size:.78rem;color:#7fb8d4;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px'>📋 Síntese Estratégica</div>", unsafe_allow_html=True)
-        rows_marca = []
-        for marca, venda, margem in zip(md["marcas"],md["vendas"],md["margem"]):
-            if venda >= max(md["vendas"])*0.7:
-                status, rec = "🟢 Alto giro", "Manter estoque"
-            elif margem >= max(md["margem"])*0.75:
-                status, rec = "🟡 Alta margem", "Impulsionar com promoção"
-            else:
-                status, rec = "🔴 Baixo desempenho", "Avaliar substituição"
-            rows_marca.append({"Marca":marca,"Vendas/sem":venda,
-                                "Margem (%)":f"{margem}%","Status":status,"Recomendação":rec})
-        st.dataframe(pd.DataFrame(rows_marca), use_container_width=True, hide_index=True)
+        # ── LANÇAR OFERTA RELÂMPAGO ───────────
+        st.markdown('<div class="sec-title">⚡ Lançar Oferta Relâmpago</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        with st.container():
+            o_produto  = st.selectbox("Produto:", ITENS_CESTA, key="o_prod")
+            o_de, o_por = st.columns(2)
+            with o_de:
+                o_preco_de  = st.number_input("Preço De (R$)", min_value=0.01, value=18.90, key="o_de")
+            with o_por:
+                o_preco_por = st.number_input("Preço Por (R$)", min_value=0.01, value=14.90, key="o_por")
+            o_validade  = st.selectbox("Validade:", ["Hoje até 22h","Amanhã","Fim de semana","3 dias"], key="o_val")
+            o_descricao = st.text_area("Mensagem (opcional):", placeholder="Ex: Estoque limitado! Últimas unidades.", key="o_desc", height=68)
 
-        # ── KPIs Bairro ────────────────────────────────────────
-        st.markdown("<div class='st'>📊 KPIs de Vendas vs. Procura do Bairro</div>", unsafe_allow_html=True)
+            if st.button("📢 Publicar Oferta Agora", use_container_width=True, key="btn_oferta"):
+                desc_pct = round((1 - o_preco_por/o_preco_de)*100)
+                st.markdown(f"""
+                <div class="card" style="border-color:var(--emerald)">
+                    <div style="color:var(--emerald);font-weight:700;margin-bottom:.4rem">✅ Oferta publicada com sucesso!</div>
+                    <div style="color:var(--muted);font-size:.85rem">
+                        {o_produto} · {loja} · <b style="color:var(--gold)">-{desc_pct}%</b><br>
+                        {fmt_brl(o_preco_de)} → <b style="color:var(--emerald)">{fmt_brl(o_preco_por)}</b><br>
+                        Válida: {o_validade}
+                    </div>
+                    <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
+                        📱 Notificação enviada a todos os consumidores do bairro.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.session_state.offer_posted = True
 
-        total_buscas = sum(st.session_state.search_counter.values())
-        kpi_data = []
-        for prod, cnt in sorted(st.session_state.search_counter.items(),
-                                 key=lambda x: x[1], reverse=True)[:6]:
-            e    = ESTOQUE_DATA[prod]
-            giro = e["giro_dia"] * 7
-            conv = round(giro / cnt * 100, 1) if cnt > 0 else 0
-            rec  = min(100, int(cnt/total_buscas*100*5))
-            kpi_data.append({
-                "Produto": f"{PRODUTOS_BASE[prod]['emoji']} {prod[:22]}",
-                "Buscas": cnt,
-                "Vendas/semana": giro,
-                "Conversão (%)": f"{conv}%",
-                "Relevância": f"{rec}%",
-            })
-        st.dataframe(pd.DataFrame(kpi_data), use_container_width=True, hide_index=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("---")
+    # ── TENDÊNCIA DE BUSCAS (FULL WIDTH) ─────
+    st.markdown('<div class="sec-title">📡 Tendência de Buscas no Bairro (últimos 7 dias)</div>', unsafe_allow_html=True)
 
-        # ── Posicionamento de Preço ────────────────────────────
-        st.markdown("<div class='st'>📈 Posicionamento de Preço vs. Concorrência</div>", unsafe_allow_html=True)
-        cg1, cg2 = st.columns([3,1])
-        with cg1:
-            prod_b2b = st.selectbox("Produto:", list(PRODUTOS_BASE.keys()),
-                                    format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}", key="pb2b")
-        with cg2:
-            periodo  = st.selectbox("Período:", ["14 dias","7 dias","30 dias"], key="per")
-        n_dias = 7 if "7" in periodo else (30 if "30" in periodo else 14)
-        hist   = build_history(prod_b2b)
-        st.line_chart(hist.tail(n_dias).set_index("Data"), use_container_width=True)
+    df_tend = gerar_tendencia_bairro()
+    fig_tend = px.line(df_tend, x="dia", y="buscas", color="item",
+                       line_shape="spline", markers=True,
+                       color_discrete_sequence=px.colors.qualitative.Set2)
+    fig_tend = plotly_dark_layout(fig_tend, height=320)
+    fig_tend.update_traces(line=dict(width=2.5))
+    st.plotly_chart(fig_tend, use_container_width=True, config={"displayModeBar":False})
 
-        sub_b2b = DF[DF["Produto"]==prod_b2b].sort_values("Preco").reset_index(drop=True)
-        sub_b2b["Curto"] = sub_b2b["Mercado"].str[:18]
-        st.bar_chart(sub_b2b.set_index("Curto")[["Preco"]], use_container_width=True)
-        tab = sub_b2b[["Mercado","Distancia","Timestamp"]].copy()
-        tab.insert(1,"Preço", sub_b2b["Preco"].apply(lambda x: "R" + chr(36) + f" {x:.2f}"))
-        tab.columns = ["Mercado","Preço","Distância","Atualização"]
-        st.dataframe(tab, use_container_width=True, hide_index=True)
-
-    # ─────────────────────────────────────────────────────────────
-    #  TAB 3 — GESTÃO DE ESTOQUE
-    # ─────────────────────────────────────────────────────────────
-    with tab3:
-
-        # ── KPIs de estoque ────────────────────────────────────
-        ok_ct    = sum(1 for e in ESTOQUE_DATA.values() if e["status"]=="ok")
-        warn_ct  = sum(1 for e in ESTOQUE_DATA.values() if e["status"]=="atencao")
-        risk_ct  = sum(1 for e in ESTOQUE_DATA.values() if e["status"]=="risco")
-        valor_est = sum(e["estoque"]*e["custo"] for e in ESTOQUE_DATA.values())
-
-        s1,s2,s3,s4 = st.columns(4)
-        s1.markdown(f"<div class='mc'><div class='v'>{ok_ct}</div><div class='l'>Itens em bom giro</div></div>",   unsafe_allow_html=True)
-        s2.markdown(f"<div class='mc mc-warn'><div class='v'>{warn_ct}</div><div class='l'>Atenção</div></div>",  unsafe_allow_html=True)
-        s3.markdown(f"<div class='mc mc-danger'><div class='v'>{risk_ct}</div><div class='l'>Risco de validade</div></div>", unsafe_allow_html=True)
-        s4.markdown(f"<div class='mc'><div class='v'>{fmt(valor_est)}</div><div class='l'>Valor em estoque</div></div>", unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        # ── Alertas de risco de vencimento ────────────────────
-        st.markdown("<div class='st'>🚨 Alertas de Risco de Vencimento / Estoque Parado</div>", unsafe_allow_html=True)
-
-        for prod, e in ESTOQUE_DATA.items():
-            emoji = PRODUTOS_BASE[prod]["emoji"]
-            dias_restantes = e["validade_dias"]
-            dias_estoque   = round(e["estoque"] / e["giro_dia"], 1) if e["giro_dia"] > 0 else 99
-
-            if e["status"] == "risco":
-                st.markdown(
-                    f"<div class='alert-c'>"
-                    f"<div class='alert-t'>🔴 RISCO ALTO — {emoji} {prod}</div>"
-                    f"<div class='alert-b'>"
-                    f"Estoque atual: <strong>{e['estoque']} unidades</strong> · "
-                    f"Giro: <strong>{e['giro_dia']} unid/dia</strong> · "
-                    f"Validade em: <strong>{dias_restantes} dias</strong><br>"
-                    f"⚠️ Com o giro atual, o estoque dura <strong>{dias_estoque} dias</strong> — "
-                    f"<span style='color:#f87171;font-weight:700'>RISCO REAL DE PERDA POR VENCIMENTO.</span>"
-                    f"</div>"
-                    f"<div class='alert-i'>💡 Sugestão: Lance promoção relâmpago agora. "
-                    f"Reduzir para {fmt(e['preco_venda']*0.82)} aumenta giro em ~40%.</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            elif e["status"] == "atencao":
-                st.markdown(
-                    f"<div class='warn-c'>"
-                    f"<div class='warn-t'>🟡 ATENÇÃO — {emoji} {prod}</div>"
-                    f"<div class='warn-b'>"
-                    f"Estoque: <strong>{e['estoque']} unidades</strong> · "
-                    f"Giro: <strong>{e['giro_dia']} unid/dia</strong> · "
-                    f"Duração estimada: <strong>{dias_estoque} dias</strong><br>"
-                    f"Monitore o giro nos próximos 2 dias. "
-                    f"Considere pedido ao distribuidor caso o ritmo caia."
-                    f"</div></div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.markdown("---")
-
-        # ── Painel completo de estoque ─────────────────────────
-        st.markdown("<div class='st'>📋 Painel de Giro e Status de Estoque</div>", unsafe_allow_html=True)
-
-        filtro = st.radio("Filtrar por status:", ["Todos","✅ Bom Giro","⚠️ Atenção","🔴 Risco"],
-                          horizontal=True, label_visibility="collapsed")
-
-        for prod, e in ESTOQUE_DATA.items():
-            emoji = PRODUTOS_BASE[prod]["emoji"]
-            if filtro == "✅ Bom Giro"   and e["status"] != "ok":      continue
-            if filtro == "⚠️ Atenção"   and e["status"] != "atencao": continue
-            if filtro == "🔴 Risco"      and e["status"] != "risco":   continue
-
-            dias_duracao = round(e["estoque"]/e["giro_dia"],1) if e["giro_dia"]>0 else 99
-            cls_map = {"ok":"inv-ok","atencao":"inv-warn","risco":"inv-risk"}
-            lbl_map = {"ok":"✅ BOM GIRO","atencao":"⚠️ ATENÇÃO","risco":"🔴 RISCO"}
-            cls     = cls_map[e["status"]]
-            lbl     = lbl_map[e["status"]]
-
-            c_left, c_right = st.columns([3,1])
-            with c_left:
-                st.markdown(
-                    f"<div class='{cls}'>"
-                    f"<div class='inv-label'>{lbl}</div>"
-                    f"<div class='inv-prod'>{emoji} {prod}</div>"
-                    f"<div class='inv-meta'>"
-                    f"Estoque: <strong>{e['estoque']} un</strong> &nbsp;·&nbsp; "
-                    f"Giro: <strong>{e['giro_dia']} un/dia</strong> &nbsp;·&nbsp; "
-                    f"Dura: <strong>{dias_duracao} dias</strong> &nbsp;·&nbsp; "
-                    f"Validade: <strong>{e['validade_dias']} dias</strong>"
-                    f"</div></div>",
-                    unsafe_allow_html=True,
-                )
-            with c_right:
-                margem_pct = round((e["preco_venda"]-e["custo"])/e["preco_venda"]*100,1)
-                st.markdown(
-                    f"<div class='{cls}' style='text-align:right'>"
-                    f"<div class='inv-label'>Margem</div>"
-                    f"<div class='inv-num'>{margem_pct}%</div>"
-                    f"<div class='inv-meta'>PV: {fmt(e['preco_venda'])}<br>Custo: {fmt(e['custo'])}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.markdown("---")
-
-        # ── Sugestão de Pedido ao Distribuidor ────────────────
-        st.markdown("<div class='st'>🚛 Sugestão de Pedido ao Distribuidor</div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='info-c'>
-          <div class='info-t'>Como é calculado</div>
-          <div class='info-b'>O sistema usa o <strong>giro diário médio</strong> + margem de segurança
-          de 3 dias + pedido mínimo do fornecedor para gerar a sugestão ideal.
-          Fórmula: <em>Qtd Ideal = max(mínimo, (giro × 7) − estoque_atual)</em></div>
-        </div>""", unsafe_allow_html=True)
-
-        pedido_rows = []
-        for prod, e in ESTOQUE_DATA.items():
-            emoji    = PRODUTOS_BASE[prod]["emoji"]
-            qtd_ideal = max(e["pedido_min"], int(e["giro_dia"]*7) - e["estoque"])
-            custo_ped = qtd_ideal * e["custo"]
-            urgencia  = "🔴 Urgente" if e["status"]=="risco" else ("🟡 Planejar" if e["status"]=="atencao" else "🟢 Normal")
-            pedido_rows.append({
-                "Produto":         f"{emoji} {prod}",
-                "Estoque Atual":   e["estoque"],
-                "Giro (un/dia)":   e["giro_dia"],
-                "Qtd. Sugerida":   qtd_ideal,
-                "Custo do Pedido": "R" + chr(36) + f" {custo_ped:.2f}",
-                "Urgência":        urgencia,
-            })
-
-        df_pedido = pd.DataFrame(pedido_rows)
-        st.dataframe(df_pedido, use_container_width=True, hide_index=True)
-
-        total_pedido = sum(
-            max(e["pedido_min"], int(e["giro_dia"]*7)-e["estoque"]) * e["custo"]
-            for e in ESTOQUE_DATA.values()
-        )
-        st.markdown(
-            f"<div class='succ-c'>"
-            f"<div class='succ-t'>💼 Valor total do pedido sugerido: {fmt(total_pedido)}</div>"
-            f"<div class='succ-b'>Pedido cobre aproximadamente <strong>7 dias</strong> de operação "
-            f"para todos os itens. Priorize os marcados como <strong>🔴 Urgente</strong> "
-            f"para evitar perda de vendas e vencimento de produtos.</div></div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("---")
-
-        # ── Histórico de Vendas ────────────────────────────────
-        st.markdown("<div class='st'>📈 Histórico de Vendas por Produto</div>", unsafe_allow_html=True)
-        prod_hist = st.selectbox("Produto:", list(PRODUTOS_BASE.keys()),
-                                 format_func=lambda x: f"{PRODUTOS_BASE[x]['emoji']} {x}", key="ph")
-        st.line_chart(build_vendas_historico(prod_hist), use_container_width=True, height=220)
-
-        e_sel = ESTOQUE_DATA[prod_hist]
-        h1,h2,h3 = st.columns(3)
-        h1.markdown(f"<div class='mc'><div class='v'>{e_sel['giro_dia']}</div><div class='l'>Giro médio/dia</div></div>", unsafe_allow_html=True)
-        h2.markdown(f"<div class='mc'><div class='v'>{e_sel['giro_dia']*7}</div><div class='l'>Projeção semanal</div></div>", unsafe_allow_html=True)
-        h3.markdown(f"<div class='mc'><div class='v'>{round((e_sel['preco_venda']-e_sel['custo'])/e_sel['preco_venda']*100,1)}%</div><div class='l'>Margem atual</div></div>", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 #  FOOTER
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 st.markdown("""
-<div class='foot'>
-  <span>4SAVR</span> · MVP v3.0 · BI & Inteligência de Estoque ·
-  Dados fictícios para demonstração a parceiros e investidores<br>
-  <em>"Onde sua economia fortalece o bairro."</em>
-</div>""", unsafe_allow_html=True)
+<hr>
+<div style="text-align:center;color:#3A5A7A;font-size:.8rem;padding:.8rem 0">
+    4SAVR · MVP Beta · Dados simulados para demonstração · 
+    <span style="color:#00C48C">Scraper estruturado pronto para ativação em produção</span>
+</div>
+""", unsafe_allow_html=True)
