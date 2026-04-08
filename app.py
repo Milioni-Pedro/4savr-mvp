@@ -1,818 +1,938 @@
+"""
+4SAVR MVP v4.0 — Inteligência Total & Cesta Dinâmica
+Streamlit app — 100% gratuito para hospedar no Streamlit Cloud
+"""
+
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+import plotly.express as px
+from itertools import combinations
 import random
-import time
+import datetime
 
 # ─────────────────────────────────────────────
-#  PAGE CONFIG & GLOBAL THEME
+# CONFIGURAÇÃO GLOBAL DA PÁGINA
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="4SAVR · Inteligência de Varejo",
+    page_title="4SAVR — Economize na Cesta Básica",
     page_icon="🛒",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 # ─────────────────────────────────────────────
-#  CUSTOM CSS – Navy + Emerald, clean & modern
+# CSS PERSONALIZADO  (Navy #001f3f + Green #2ecc71)
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500&display=swap');
 
-:root {
-    --navy:    #0B1E3F;
-    --navy2:   #112952;
-    --emerald: #00C48C;
-    --emerald2:#00A876;
-    --gold:    #FFB547;
-    --red:     #FF5252;
-    --bg:      #0D1B2A;
-    --card:    #132237;
-    --card2:   #1A2E48;
-    --text:    #E8EFF7;
-    --muted:   #7A9ABF;
-    --border:  rgba(0,196,140,0.18);
-}
+  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-    background-color: var(--bg) !important;
-    color: var(--text) !important;
-}
+  /* Fundo geral */
+  .stApp { background: #f0f4f8; }
 
-/* hide streamlit chrome */
-#MainMenu, footer, header {visibility: hidden;}
-.block-container {padding: 1.5rem 2.5rem 3rem !important; max-width: 1400px !important;}
+  /* Header hero */
+  .hero-banner {
+    background: linear-gradient(135deg, #001f3f 0%, #003366 60%, #004080 100%);
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 1.5rem;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .hero-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: #2ecc71;
+    margin: 0;
+    line-height: 1.1;
+  }
+  .hero-sub {
+    font-size: 1rem;
+    color: #a8c8e8;
+    margin-top: 0.3rem;
+  }
 
-/* headings */
-h1,h2,h3 { font-family: 'Syne', sans-serif !important; }
+  /* Tabs customizadas */
+  .stTabs [data-baseweb="tab-list"] {
+    background: #001f3f;
+    border-radius: 12px 12px 0 0;
+    gap: 4px;
+    padding: 6px 8px 0;
+  }
+  .stTabs [data-baseweb="tab"] {
+    color: #a8c8e8 !important;
+    font-family: 'Sora', sans-serif;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+    padding: 10px 24px;
+  }
+  .stTabs [aria-selected="true"] {
+    background: #f0f4f8 !important;
+    color: #001f3f !important;
+  }
 
-/* ── HERO HEADER ── */
-.hero {
-    background: linear-gradient(135deg, var(--navy) 0%, #0f3460 60%, #0d2137 100%);
-    border-radius: 18px;
-    padding: 2.2rem 2.8rem;
-    margin-bottom: 1.8rem;
-    border: 1px solid var(--border);
-    position: relative;
-    overflow: hidden;
-}
-.hero::before {
-    content:'';
-    position:absolute; inset:0;
-    background: radial-gradient(ellipse at 80% 50%, rgba(0,196,140,0.12) 0%, transparent 70%);
-}
-.hero-title {
-    font-family:'Syne',sans-serif;
-    font-size:2.6rem; font-weight:800;
-    background: linear-gradient(90deg, #fff 0%, var(--emerald) 100%);
-    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-    margin:0; line-height:1.1;
-}
-.hero-sub { color:var(--muted); font-size:1.05rem; margin-top:.5rem; }
-.hero-badge {
-    display:inline-block; background:rgba(0,196,140,.15);
-    color:var(--emerald); border:1px solid var(--emerald2);
-    border-radius:20px; padding:.25rem .8rem;
-    font-size:.8rem; font-weight:600; letter-spacing:.04em;
-    margin-bottom:.6rem;
-}
-
-/* ── CARDS ── */
-.card {
-    background: var(--card);
-    border: 1px solid var(--border);
+  /* Cards de cenário */
+  .scenario-card {
+    background: white;
     border-radius: 14px;
     padding: 1.4rem 1.6rem;
+    box-shadow: 0 2px 12px rgba(0,31,63,0.08);
+    border-left: 5px solid #001f3f;
     margin-bottom: 1rem;
-}
-.card-sm {
-    background: var(--card2);
-    border: 1px solid rgba(255,255,255,.06);
+  }
+  .scenario-card.best {
+    border-left: 5px solid #2ecc71;
+    background: linear-gradient(135deg, #f0fff6 0%, #ffffff 100%);
+  }
+  .scenario-title {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #001f3f;
+    margin-bottom: 0.5rem;
+  }
+  .scenario-price {
+    font-family: 'Sora', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    color: #001f3f;
+  }
+  .scenario-price.green { color: #2ecc71; }
+  .economy-badge {
+    background: #2ecc71;
+    color: white;
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    border-radius: 20px;
+    padding: 6px 18px;
+    display: inline-block;
+    font-size: 1.1rem;
+    margin-top: 0.8rem;
+  }
+
+  /* Tabela de split */
+  .split-table { width: 100%; border-collapse: collapse; }
+  .split-table th {
+    background: #001f3f;
+    color: white;
+    padding: 8px 14px;
+    text-align: left;
+    font-family: 'Sora', sans-serif;
+    font-size: 0.85rem;
+  }
+  .split-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #e8eef4;
+    font-size: 0.88rem;
+  }
+  .split-table tr:nth-child(even) td { background: #f8fafc; }
+
+  /* Score badge */
+  .score-badge {
+    background: linear-gradient(135deg, #001f3f, #003366);
+    color: white;
+    border-radius: 50%;
+    width: 80px; height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Sora', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin: 0 auto;
+  }
+
+  /* Alert cards */
+  .alert-card {
+    background: #fff8e1;
+    border: 1px solid #ffc107;
     border-radius: 10px;
     padding: 1rem 1.2rem;
-    margin-bottom: .6rem;
-}
+    margin-bottom: 0.7rem;
+  }
+  .alert-card.danger {
+    background: #fff3f3;
+    border-color: #e74c3c;
+  }
 
-/* ── METRIC BOXES ── */
-.metric-box {
-    background: linear-gradient(135deg, var(--card) 0%, var(--card2) 100%);
-    border: 1px solid var(--border);
+  /* KPI metric override */
+  [data-testid="stMetric"] {
+    background: white;
     border-radius: 12px;
-    padding: 1.2rem 1.4rem;
-    text-align: center;
-}
-.metric-val { font-family:'Syne',sans-serif; font-size:2rem; font-weight:700; color:var(--emerald); }
-.metric-lbl { font-size:.82rem; color:var(--muted); margin-top:.15rem; }
+    padding: 1rem 1.2rem;
+    box-shadow: 0 2px 8px rgba(0,31,63,0.07);
+  }
+  [data-testid="stMetricLabel"] { font-family: 'Sora', sans-serif; font-weight: 600; }
+  [data-testid="stMetricValue"] { font-family: 'Sora', sans-serif; font-weight: 800; }
 
-/* ── PRICE RANKING ── */
-.rank-item {
-    display:flex; align-items:center; justify-content:space-between;
-    background: var(--card2);
-    border: 1px solid rgba(255,255,255,.06);
-    border-radius: 10px;
-    padding: .85rem 1.2rem;
-    margin-bottom: .5rem;
-    transition: border-color .2s;
-}
-.rank-item:hover { border-color: var(--emerald); }
-.rank-badge {
-    width:28px; height:28px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center;
-    font-weight:700; font-size:.85rem;
-    flex-shrink:0; margin-right:.9rem;
-}
-.rank-1 { background:linear-gradient(135deg,#FFB547,#FF8C00); color:#000; }
-.rank-2 { background:linear-gradient(135deg,#aaa,#666); color:#fff; }
-.rank-3 { background:linear-gradient(135deg,#cd7f32,#a0522d); color:#fff; }
-.rank-other { background:var(--card); color:var(--muted); border:1px solid rgba(255,255,255,.1); }
-.rank-name  { flex:1; font-weight:500; font-size:.95rem; }
-.rank-price { font-family:'Syne',sans-serif; font-weight:700; font-size:1.1rem; color:var(--emerald); }
-.rank-best  { font-size:.75rem; color:var(--emerald); background:rgba(0,196,140,.12); padding:.15rem .5rem; border-radius:20px; margin-left:.6rem; }
+  /* Botão principal */
+  .stButton > button {
+    background: linear-gradient(135deg, #2ecc71, #27ae60) !important;
+    color: white !important;
+    font-family: 'Sora', sans-serif !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.6rem 1.8rem !important;
+    font-size: 1rem !important;
+    transition: all 0.2s ease !important;
+  }
+  .stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(46,204,113,0.4) !important;
+  }
 
-/* ── OFFER FEED ── */
-.offer-card {
-    background: linear-gradient(135deg, var(--card) 60%, rgba(0,196,140,.08));
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1rem 1.3rem;
-    margin-bottom: .7rem;
-    position:relative;
-}
-.offer-badge {
-    display:inline-block;
-    background:linear-gradient(90deg,var(--emerald),var(--emerald2));
-    color:#000; font-weight:700; font-size:.72rem;
-    padding:.2rem .6rem; border-radius:20px;
-    text-transform:uppercase; letter-spacing:.05em;
-}
-.offer-flash { color:var(--gold); font-size:.82rem; }
-.score-bar-wrap { background:rgba(255,255,255,.06); border-radius:20px; height:8px; margin-top:.4rem; }
-.score-bar { height:8px; border-radius:20px; background:linear-gradient(90deg,var(--emerald),#00ff9f); }
+  div[data-testid="stSidebar"] { background: #001f3f; }
 
-/* ── POINTS BANNER ── */
-.points-banner {
-    background: linear-gradient(135deg,rgba(255,181,71,.15),rgba(255,181,71,.05));
-    border: 1px solid rgba(255,181,71,.3);
-    border-radius: 12px;
-    padding: 1rem 1.4rem;
-    display:flex; align-items:center; gap:1rem;
-}
-.points-val { font-family:'Syne',sans-serif; font-size:2rem; font-weight:800; color:var(--gold); }
-
-/* ── ALERT CARDS ── */
-.alert-warn {
-    background:rgba(255,82,82,.1);
-    border:1px solid rgba(255,82,82,.3);
-    border-radius:10px; padding:.9rem 1.2rem;
-    margin-bottom:.5rem;
-}
-.alert-ok {
-    background:rgba(0,196,140,.08);
-    border:1px solid var(--border);
-    border-radius:10px; padding:.9rem 1.2rem;
-    margin-bottom:.5rem;
-}
-
-/* ── TABS ── */
-.stTabs [data-baseweb="tab-list"] {
-    gap:.5rem;
-    background:var(--card);
-    border-radius:12px; padding:.4rem .5rem;
-    border:1px solid var(--border);
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius:8px !important;
-    color:var(--muted) !important;
-    font-weight:500 !important;
-    font-family:'Inter',sans-serif !important;
-    padding:.45rem 1.2rem !important;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg,var(--emerald),var(--emerald2)) !important;
-    color:#000 !important; font-weight:700 !important;
-}
-
-/* ── BUTTONS ── */
-.stButton > button {
-    background: linear-gradient(135deg,var(--emerald),var(--emerald2));
-    color:#000 !important; font-weight:700 !important;
-    border:none !important; border-radius:10px !important;
-    padding:.6rem 1.6rem !important;
-    font-family:'Inter',sans-serif !important;
-    transition: opacity .2s, transform .15s !important;
-}
-.stButton > button:hover { opacity:.88; transform:translateY(-1px); }
-
-/* inputs */
-.stTextInput input, .stSelectbox select, .stNumberInput input {
-    background: var(--card2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    color: var(--text) !important;
-}
-.stTextInput input:focus, .stSelectbox select:focus {
-    border-color: var(--emerald) !important;
-    box-shadow: 0 0 0 2px rgba(0,196,140,.2) !important;
-}
-
-/* dataframe */
-.stDataFrame { border-radius: 10px; overflow: hidden; }
-[data-testid="stDataFrameResizable"] { background: var(--card2); }
-
-/* divider */
-hr { border-color: rgba(255,255,255,.06) !important; }
-
-/* section titles */
-.sec-title {
-    font-family:'Syne',sans-serif;
-    font-size:1.15rem; font-weight:700;
-    color:var(--text);
-    margin-bottom: .8rem;
-    display:flex; align-items:center; gap:.5rem;
-}
-.sec-title::after {
-    content:''; flex:1; height:1px;
-    background:linear-gradient(90deg,var(--border),transparent);
-    margin-left:.4rem;
-}
+  .footer-note {
+    text-align: center; color: #889aab; font-size: 0.78rem; margin-top: 2rem;
+  }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
-#  SESSION STATE INITIALIZATION
+# SESSION STATE INIT
 # ─────────────────────────────────────────────
-def init_state():
-    defaults = {
-        "consumer_points": 340,
-        "validated_offers": 7,
-        "search_log": {},          # {item: count}
-        "flash_offers": [],
-        "lojista_store": "Condor",
-        "offer_posted": False,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+defaults = {
+    "cesta_selecionada": [],
+    "score_confianca": 0,
+    "trafego_total": 47,
+    "buscas_por_item": {},
+    "historico_validacoes": [],
+    "lojas_visitadas": [],
+    "promo_relampago": [],
+    "seed": 42,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-init_state()
+random.seed(st.session_state["seed"])
+np.random.seed(st.session_state["seed"])
 
+
+# ─────────────────────────────────────────────
+# DADOS SIMULADOS
+# ─────────────────────────────────────────────
 MERCADOS = ["Condor", "Muffato", "Angeloni", "Festival", "Atacadão", "Max Atacadista"]
-ITENS_CESTA = ["Arroz 5kg", "Feijão 1kg", "Óleo 900ml", "Leite 1L", "Açúcar 1kg", "Café 500g"]
 
-MARCAS = {
-    "Arroz 5kg":  ["Tio João", "Camil", "Kika"],
-    "Feijão 1kg": ["Camil", "Coqueiro", "Jurere"],
-    "Óleo 900ml": ["Liza", "Soya", "Salada"],
-    "Leite 1L":   ["Tirol", "Parmalat", "Batavo"],
-    "Açúcar 1kg": ["União", "Guarani", "Caravelas"],
-    "Café 500g":  ["Pilão", "3 Corações", "Melitta"],
+CORES_MERCADO = {
+    "Condor":          "#e74c3c",
+    "Muffato":         "#3498db",
+    "Angeloni":        "#9b59b6",
+    "Festival":        "#f39c12",
+    "Atacadão":        "#1abc9c",
+    "Max Atacadista":  "#001f3f",
 }
 
+# Preços base por item (R$) — simulado mas realista para Curitiba 2024
+PRECOS_BASE = {
+    "Arroz 5kg":           {"Condor": 22.90, "Muffato": 21.50, "Angeloni": 24.99, "Festival": 23.40, "Atacadão": 18.90, "Max Atacadista": 19.50},
+    "Feijão Preto 1kg":    {"Condor":  8.90, "Muffato":  9.20, "Angeloni":  9.99, "Festival":  8.50, "Atacadão":  7.40, "Max Atacadista":  7.80},
+    "Feijão Carioca 1kg":  {"Condor":  7.90, "Muffato":  8.10, "Angeloni":  8.90, "Festival":  7.60, "Atacadão":  6.50, "Max Atacadista":  6.90},
+    "Óleo de Soja 900ml":  {"Condor":  6.90, "Muffato":  6.50, "Angeloni":  7.49, "Festival":  6.80, "Atacadão":  5.90, "Max Atacadista":  6.20},
+    "Leite Integral 1L":   {"Condor":  4.59, "Muffato":  4.89, "Angeloni":  5.29, "Festival":  4.40, "Atacadão":  3.99, "Max Atacadista":  4.10},
+    "Açúcar Cristal 1kg":  {"Condor":  4.19, "Muffato":  4.50, "Angeloni":  4.89, "Festival":  4.00, "Atacadão":  3.49, "Max Atacadista":  3.60},
+    "Farinha de Trigo 1kg":{"Condor":  4.39, "Muffato":  4.80, "Angeloni":  5.10, "Festival":  4.20, "Atacadão":  3.70, "Max Atacadista":  3.90},
+    "Macarrão 500g":       {"Condor":  3.49, "Muffato":  3.70, "Angeloni":  3.99, "Festival":  3.30, "Atacadão":  2.99, "Max Atacadista":  3.10},
+    "Café 500g":           {"Condor": 15.90, "Muffato": 16.50, "Angeloni": 17.99, "Festival": 15.00, "Atacadão": 13.90, "Max Atacadista": 14.50},
+    "Sal 1kg":             {"Condor":  1.99, "Muffato":  2.10, "Angeloni":  2.29, "Festival":  1.90, "Atacadão":  1.59, "Max Atacadista":  1.70},
+    "Manteiga 200g":       {"Condor":  8.99, "Muffato":  9.40, "Angeloni": 10.49, "Festival":  8.70, "Atacadão":  7.99, "Max Atacadista":  8.20},
+    "Biscoito Cream Cracker":{"Condor":3.99, "Muffato": 4.20, "Angeloni":  4.49, "Festival":  3.80, "Atacadão":  3.29, "Max Atacadista":  3.40},
+    "Sabonete (3un)":      {"Condor":  5.49, "Muffato":  5.80, "Angeloni":  6.29, "Festival":  5.20, "Atacadão":  4.50, "Max Atacadista":  4.70},
+    "Detergente 500ml":    {"Condor":  2.49, "Muffato":  2.70, "Angeloni":  2.99, "Festival":  2.30, "Atacadão":  1.99, "Max Atacadista":  2.10},
+    "Papel Higiênico 4un": {"Condor":  6.99, "Muffato":  7.40, "Angeloni":  7.99, "Festival":  6.80, "Atacadão":  5.90, "Max Atacadista":  6.20},
+}
+
+TODOS_ITENS = list(PRECOS_BASE.keys())
+
+# Marcas por categoria (para aba de giro)
+MARCAS = {
+    "Café 500g":        ["Pilão", "3 Corações", "Café do Ponto", "Melitta"],
+    "Arroz 5kg":        ["Tio João", "Prato Fino", "Camil", "Urbano"],
+    "Feijão Preto 1kg": ["Camil", "Kicaldo", "Prato Fino", "Tangará"],
+    "Óleo de Soja 900ml": ["Liza", "Soya", "Salada", "Purilev"],
+    "Leite Integral 1L":  ["Piracanjuba", "Itambé", "Aurora", "Ninho"],
+}
+
+# Estoque simulado com data de validade para alertas
+np.random.seed(10)
+ESTOQUE_LOJISTA = []
+hoje = datetime.date.today()
+for item in TODOS_ITENS:
+    dias_validade = random.randint(5, 120)
+    giro_semanal = random.randint(1, 30)
+    semanas_estoque = random.randint(1, 8)
+    ESTOQUE_LOJISTA.append({
+        "Item": item,
+        "Estoque (un)": giro_semanal * semanas_estoque,
+        "Giro Semanal": giro_semanal,
+        "Semanas de Estoque": semanas_estoque,
+        "Validade": hoje + datetime.timedelta(days=dias_validade),
+        "Dias para Vencer": dias_validade,
+    })
+df_estoque = pd.DataFrame(ESTOQUE_LOJISTA)
+
+
 # ─────────────────────────────────────────────
-#  MOCK DATA GENERATION (simula scraping diário)
+# FUNÇÕES AUXILIARES
 # ─────────────────────────────────────────────
-@st.cache_data(ttl=300)
-def gerar_precos_mock():
-    """
-    Simula dados coletados via scraping (BeautifulSoup / Selenium).
-    Em produção, substituir pelo scraper real de cada site.
-    """
-    random.seed(42)
-    base_prices = {
-        "Arroz 5kg":  {"Condor":22.9,"Muffato":21.5,"Angeloni":24.9,"Festival":23.4,"Atacadão":19.9,"Max Atacadista":20.5},
-        "Feijão 1kg": {"Condor":8.9,"Muffato":8.5,"Angeloni":9.9,"Festival":8.7,"Atacadão":7.2,"Max Atacadista":7.5},
-        "Óleo 900ml": {"Condor":7.9,"Muffato":7.5,"Angeloni":8.9,"Festival":7.8,"Atacadão":6.9,"Max Atacadista":7.1},
-        "Leite 1L":   {"Condor":4.9,"Muffato":4.7,"Angeloni":5.4,"Festival":4.8,"Atacadão":4.2,"Max Atacadista":4.3},
-        "Açúcar 1kg": {"Condor":3.9,"Muffato":3.7,"Angeloni":4.2,"Festival":3.8,"Atacadão":3.2,"Max Atacadista":3.4},
-        "Café 500g":  {"Condor":18.9,"Muffato":17.9,"Angeloni":21.5,"Festival":19.2,"Atacadão":15.9,"Max Atacadista":16.5},
-    }
+def get_df_precos(itens: list) -> pd.DataFrame:
+    """Retorna DataFrame de preços filtrado pelos itens selecionados."""
     rows = []
-    for item, prices in base_prices.items():
-        for mercado, base in prices.items():
-            variacao = random.uniform(-0.05, 0.05)
-            preco = round(base * (1 + variacao), 2)
+    for item in itens:
+        for mercado in MERCADOS:
             rows.append({
-                "item": item,
-                "mercado": mercado,
-                "preco": preco,
-                "em_oferta": random.random() < 0.2,
-                "estoque": random.choice(["Alto","Médio","Baixo"]),
-                "ultima_atualizacao": datetime.now().strftime("%d/%m %H:%M"),
+                "Item": item,
+                "Mercado": mercado,
+                "Preço": PRECOS_BASE[item][mercado],
             })
     return pd.DataFrame(rows)
 
-@st.cache_data(ttl=60)
-def gerar_flash_offers():
-    offers = [
-        {"produto":"Arroz 5kg Tio João","mercado":"Condor","preco_de":22.90,"preco_por":17.90,
-         "validade":"Hoje até 22h","score":94,"usuario":"Fernanda R.","validacoes":23},
-        {"produto":"Café Pilão 500g","mercado":"Muffato","preco_de":18.90,"preco_por":13.99,
-         "validade":"Amanhã","score":87,"usuario":"Lojista Oficial","validacoes":41},
-        {"produto":"Leite Tirol 6un","mercado":"Atacadão","preco_de":29.40,"preco_por":22.90,
-         "validade":"Fim de semana","score":91,"usuario":"Carlos M.","validacoes":17},
-        {"produto":"Óleo Liza 900ml","mercado":"Festival","preco_de":7.90,"preco_por":5.99,
-         "validade":"Hoje até 20h","score":78,"usuario":"Ana P.","validacoes":9},
-    ]
-    return offers
 
-@st.cache_data(ttl=120)
-def gerar_tendencia_bairro():
-    items = ITENS_CESTA
-    dias = [(datetime.now() - timedelta(days=i)).strftime("%d/%m") for i in range(6, -1, -1)]
-    rows = []
-    random.seed(7)
-    for item in items:
-        base = random.randint(30, 120)
-        for d in dias:
-            rows.append({"item":item,"dia":d,"buscas":max(5, base + random.randint(-15,20))})
-    return pd.DataFrame(rows)
+def calcular_cesta_mercado(itens: list) -> dict:
+    """Total da cesta em cada mercado."""
+    totais = {}
+    for m in MERCADOS:
+        totais[m] = sum(PRECOS_BASE[item][m] for item in itens)
+    return totais
 
-@st.cache_data(ttl=120)
-def gerar_giro_marcas(item="Café 500g"):
-    marcas = MARCAS.get(item, ["A","B","C"])
-    random.seed(99)
-    data = []
-    for m in marcas:
-        data.append({"marca":m,"buscas":random.randint(40,200),"conversoes":random.randint(10,80)})
-    return pd.DataFrame(data)
 
-@st.cache_data(ttl=120)
-def gerar_historico_precos(mercado="Condor", item="Café 500g"):
-    dias = [(datetime.now()-timedelta(days=i)).strftime("%d/%m") for i in range(29,-1,-1)]
-    random.seed(hash(mercado+item)%100)
-    base = 18.0
-    data = []
-    for d in dias:
-        base += random.uniform(-0.5, 0.5)
-        data.append({"dia":d,"preco":round(base,2)})
-    return pd.DataFrame(data)
+def cenario_conveniencia(itens: list) -> tuple:
+    """Retorna (mercado, total) onde a cesta é mais barata em 1 lugar."""
+    totais = calcular_cesta_mercado(itens)
+    melhor = min(totais, key=totais.get)
+    return melhor, totais[melhor], totais
 
-# ─────────────────────────────────────────────
-#  PLACEHOLDER DE SCRAPING (estrutura real)
-# ─────────────────────────────────────────────
-def scraper_placeholder(mercado: str, item: str) -> dict | None:
+
+def cenario_economia_maxima(itens: list) -> dict:
     """
-    SCRAPER PLACEHOLDER — estrutura pronta para produção.
-    Substituir o bloco 'return mock' pela lógica real de cada site.
-
-    Para ativar:
-      pip install requests beautifulsoup4 selenium playwright
-      playwright install chromium
-
-    Cada mercado tem seu próprio seletor CSS:
+    Divide a compra em 2 mercados encontrando o mínimo absoluto.
+    Para cada item, escolhe o mercado mais barato.
+    Depois agrupa por mercado e retorna plano completo.
     """
-    SCRAPER_CONFIG = {
-        "Condor":          {"url": "https://www.condor.com.br/busca?q={item}", "css_price": ".price-value"},
-        "Muffato":         {"url": "https://www.muffato.com.br/search?term={item}", "css_price": ".price"},
-        "Angeloni":        {"url": "https://www.angeloni.com.br/super/busca?q={item}", "css_price": ".product-price"},
-        "Festival":        {"url": "https://www.superfestival.com.br/?busca={item}", "css_price": ".preco"},
-        "Atacadão":        {"url": "https://www.atacadao.com.br/search?q={item}", "css_price": ".valornormal"},
-        "Max Atacadista":  {"url": "https://www.maxatacadista.com.br/busca/{item}", "css_price": ".ProductPrice"},
+    plano = {}
+    total = 0.0
+    for item in itens:
+        precos_item = {m: PRECOS_BASE[item][m] for m in MERCADOS}
+        melhor_m = min(precos_item, key=precos_item.get)
+        plano[item] = {"Mercado": melhor_m, "Preço": precos_item[melhor_m]}
+        total += precos_item[melhor_m]
+
+    # Agrupar por mercado
+    por_mercado = {}
+    for item, info in plano.items():
+        m = info["Mercado"]
+        if m not in por_mercado:
+            por_mercado[m] = {"itens": [], "subtotal": 0.0}
+        por_mercado[m]["itens"].append({"item": item, "preco": info["Preço"]})
+        por_mercado[m]["subtotal"] += info["Preço"]
+
+    return {
+        "plano_item": plano,
+        "por_mercado": por_mercado,
+        "total": total,
+        "num_mercados": len(por_mercado),
     }
-    # ── PRODUCTION CODE (uncomment to activate) ──────────────────────────
-    # import requests
-    # from bs4 import BeautifulSoup
-    # cfg = SCRAPER_CONFIG.get(mercado)
-    # if not cfg: return None
-    # url = cfg["url"].format(item=item.replace(" ", "+"))
-    # headers = {"User-Agent": "Mozilla/5.0 (compatible; 4SAVR-bot/1.0)"}
-    # try:
-    #     r = requests.get(url, headers=headers, timeout=10)
-    #     soup = BeautifulSoup(r.text, "html.parser")
-    #     el = soup.select_one(cfg["css_price"])
-    #     price_raw = el.text.strip() if el else None
-    #     price = float(price_raw.replace("R$","").replace(",",".").strip()) if price_raw else None
-    #     return {"mercado": mercado, "item": item, "preco": price, "url": url}
-    # except Exception as e:
-    #     return {"mercado": mercado, "item": item, "preco": None, "erro": str(e)}
-    # ─────────────────────────────────────────────────────────────────────
-    return None   # usa mock em demo
-
-# ─────────────────────────────────────────────
-#  HELPERS DE UI
-# ─────────────────────────────────────────────
-def fmt_brl(v): return f"R$ {v:.2f}".replace(".",",")
-
-def render_rank_list(df_item):
-    df_sorted = df_item.sort_values("preco").reset_index(drop=True)
-    html = ""
-    for i, row in df_sorted.iterrows():
-        rank = i + 1
-        badge_cls = {1:"rank-1",2:"rank-2",3:"rank-3"}.get(rank,"rank-other")
-        badge_txt = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, str(rank))
-        best_tag = '<span class="rank-best">✓ Melhor</span>' if rank == 1 else ""
-        oferta = ' <span style="color:#FFB547;font-size:.75rem">⚡ Oferta</span>' if row.em_oferta else ""
-        html += f"""
-        <div class="rank-item">
-            <div class="rank-badge {badge_cls}">{badge_txt}</div>
-            <div class="rank-name">{row.mercado}{oferta}</div>
-            <div class="rank-price">{fmt_brl(row.preco)}{best_tag}</div>
-        </div>"""
-    st.markdown(html, unsafe_allow_html=True)
-
-def plotly_dark_layout(fig, height=360, showlegend=True):
-    fig.update_layout(
-        height=height,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(13,27,42,0.6)",
-        font=dict(family="Inter", color="#7A9ABF", size=12),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#E8EFF7")) if showlegend else dict(visible=False),
-        margin=dict(l=10,r=10,t=30,b=10),
-        xaxis=dict(gridcolor="rgba(255,255,255,.05)", linecolor="rgba(255,255,255,.08)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,.05)", linecolor="rgba(255,255,255,.08)"),
-    )
-    return fig
 
 
-# ─────────────────────────────────────────────
-#  HERO HEADER
-# ─────────────────────────────────────────────
-st.markdown("""
-<div class="hero">
-  <span class="hero-badge">🛒 MVP · Beta</span>
-  <div class="hero-title">4SAVR</div>
-  <div class="hero-sub">Inteligência de Varejo Alimentar · Cesta Básica em Curitiba & Região</div>
-</div>
-""", unsafe_allow_html=True)
+def radar_buscas() -> dict:
+    """Retorna dict com contagem de buscas por item (session + simulado)."""
+    base = {item: random.randint(3, 45) for item in TODOS_ITENS}
+    for item in st.session_state["buscas_por_item"]:
+        base[item] = base.get(item, 0) + st.session_state["buscas_por_item"][item]
+    return base
 
-# ─────────────────────────────────────────────
-#  TABS PRINCIPAIS
-# ─────────────────────────────────────────────
-tab_consumer, tab_lojista = st.tabs(["🛍️  Consumidor", "📊  Lojista / BI"])
 
-df_all = gerar_precos_mock()
-
-# ══════════════════════════════════════════════
-#  TAB 1 — CONSUMIDOR
-# ══════════════════════════════════════════════
-with tab_consumer:
-
-    # ── POINTS BANNER ──────────────────────────
-    pts = st.session_state.consumer_points
-    val = st.session_state.validated_offers
-    st.markdown(f"""
-    <div class="points-banner">
-        <div>
-            <div class="points-val">⭐ {pts}</div>
-            <div style="color:#7A9ABF;font-size:.82rem">Seus pontos acumulados</div>
-        </div>
-        <div style="width:1px;height:48px;background:rgba(255,181,71,.2)"></div>
-        <div>
-            <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:700;color:#FFB547">{val}</div>
-            <div style="color:#7A9ABF;font-size:.82rem">Ofertas validadas</div>
-        </div>
-        <div style="flex:1;padding-left:1rem;color:#7A9ABF;font-size:.9rem">
-            🏆 Você ajudou <b style="color:#FFB547">{val * 3} vizinhos</b> esta semana!
-        </div>
+def render_hero():
+    st.markdown("""
+    <div class="hero-banner">
+      <div style="font-size:3.5rem">🛒</div>
+      <div>
+        <p class="hero-title">4SAVR</p>
+        <p class="hero-sub">Compare preços, monte sua cesta e economize de verdade — Curitiba e Região</p>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    col_left, col_right = st.columns([3, 2], gap="large")
+# ─────────────────────────────────────────────
+# HEADER GLOBAL
+# ─────────────────────────────────────────────
+render_hero()
 
-    # ── LEFT COLUMN ─────────────────────────────
-    with col_left:
+# Tabs principais
+tab_consumidor, tab_lojista = st.tabs([
+    "🛍️  Consumidor — Montar minha Cesta",
+    "📊  Lojista — BI & Gestão"
+])
 
-        # ── 1. CONSULTA DE PREÇOS ──────────────
-        st.markdown('<div class="sec-title">🔍 Comparar Preços por Item</div>', unsafe_allow_html=True)
 
-        with st.container():
-            c1, c2 = st.columns([2, 1])
-            with c1:
-                item_sel = st.selectbox("Produto", ITENS_CESTA, label_visibility="collapsed")
-            with c2:
-                buscar = st.button("Buscar Preços", use_container_width=True)
+# ══════════════════════════════════════════════════════════════════════
+#  ABA 1: CONSUMIDOR
+# ══════════════════════════════════════════════════════════════════════
+with tab_consumidor:
+    st.markdown("### 🧺 Configure sua Cesta Básica")
 
-            if buscar or item_sel:
-                # registra busca no log (para BI do lojista)
-                st.session_state.search_log[item_sel] = st.session_state.search_log.get(item_sel, 0) + 1
+    col_check, col_result = st.columns([1, 2], gap="large")
 
-                df_item = df_all[df_all.item == item_sel].copy()
+    with col_check:
+        st.markdown("**Selecione os itens que precisa comprar:**")
 
-                with st.spinner("Atualizando preços..."):
-                    time.sleep(0.3)
+        # Agrupamento visual
+        grupos = {
+            "🌾 Grãos & Farinhas": ["Arroz 5kg","Feijão Preto 1kg","Feijão Carioca 1kg","Farinha de Trigo 1kg","Macarrão 500g"],
+            "🧴 Temperos & Óleos":  ["Óleo de Soja 900ml","Sal 1kg","Café 500g"],
+            "🥛 Laticínios":        ["Leite Integral 1L","Manteiga 200g"],
+            "🍬 Outros Alimentos":  ["Açúcar Cristal 1kg","Biscoito Cream Cracker"],
+            "🧹 Higiene & Limpeza": ["Sabonete (3un)","Detergente 500ml","Papel Higiênico 4un"],
+        }
 
-                render_rank_list(df_item)
+        cesta_nova = []
+        for grupo, itens_grupo in grupos.items():
+            with st.expander(grupo, expanded=True):
+                for item in itens_grupo:
+                    checked = item in st.session_state["cesta_selecionada"]
+                    if st.checkbox(item, value=checked, key=f"chk_{item}"):
+                        cesta_nova.append(item)
 
-                # mini stats
-                m1, m2, m3 = st.columns(3)
-                min_p = df_item.preco.min()
-                max_p = df_item.preco.max()
-                eco = max_p - min_p
-                m1.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(min_p)}</div><div class="metric-lbl">Menor preço</div></div>', unsafe_allow_html=True)
-                m2.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(max_p)}</div><div class="metric-lbl">Maior preço</div></div>', unsafe_allow_html=True)
-                m3.markdown(f'<div class="metric-box"><div class="metric-val">{fmt_brl(eco)}</div><div class="metric-lbl">Você economiza</div></div>', unsafe_allow_html=True)
+        # Atualizar session state e radar de buscas
+        novos = set(cesta_nova) - set(st.session_state["cesta_selecionada"])
+        for item in novos:
+            st.session_state["buscas_por_item"][item] = \
+                st.session_state["buscas_por_item"].get(item, 0) + 1
+        st.session_state["cesta_selecionada"] = cesta_nova
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        n_itens = len(cesta_nova)
+        if n_itens > 0:
+            st.info(f"🛒 **{n_itens} item(ns)** selecionado(s)")
+        else:
+            st.warning("Selecione pelo menos 1 item para comparar.")
 
-        # ── 2. MELHOR CESTA COMPLETA ───────────
-        st.markdown('<div class="sec-title">🧺 Menor Preço da Cesta Completa</div>', unsafe_allow_html=True)
+    # ── PAINEL DE RESULTADOS ──
+    with col_result:
+        if len(st.session_state["cesta_selecionada"]) == 0:
+            st.markdown("""
+            <div style="text-align:center;padding:3rem 1rem;color:#889aab">
+              <div style="font-size:4rem">🔍</div>
+              <p style="font-family:'Sora',sans-serif;font-size:1.2rem">
+                Selecione itens ao lado para ver os <b>3 Cenários de Compra</b>
+              </p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            itens = st.session_state["cesta_selecionada"]
 
-        if st.button("🧮 Calcular Melhor Mercado para a Cesta", use_container_width=True):
-            with st.spinner("Calculando..."):
-                time.sleep(0.5)
-            totais = df_all.groupby("mercado")["preco"].sum().reset_index()
-            totais.columns = ["mercado","total_cesta"]
-            totais = totais.sort_values("total_cesta").reset_index(drop=True)
-            vencedor = totais.iloc[0]
-            segundo  = totais.iloc[1]
-            economia = round(segundo.total_cesta - vencedor.total_cesta, 2)
+            # ── CENÁRIO 1: CONVENIÊNCIA ──
+            m_conv, total_conv, todos_totais = cenario_conveniencia(itens)
+            mais_caro_m = max(todos_totais, key=todos_totais.get)
 
+            # ── CENÁRIO 2: ECONOMIA MÁXIMA ──
+            eco = cenario_economia_maxima(itens)
+            total_eco = eco["total"]
+            economia = total_conv - total_eco
+
+            # ── EXIBIÇÃO DOS CARDS ──
+            st.markdown("---")
+            st.markdown("#### 📊 Comparativo — 3 Cenários de Compra")
+
+            # Cenário 1
             st.markdown(f"""
-            <div class="card" style="border-color:var(--emerald);border-width:2px">
-                <div style="font-size:.82rem;color:var(--muted);margin-bottom:.3rem">🏆 MELHOR MERCADO PARA CESTA COMPLETA</div>
-                <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--emerald)">{vencedor.mercado}</div>
-                <div style="font-size:1.5rem;font-weight:700;color:#fff;margin:.2rem 0">{fmt_brl(vencedor.total_cesta)}</div>
-                <div style="color:var(--gold);font-size:.92rem">💰 Você economiza <b>{fmt_brl(economia)}</b> vs. {segundo.mercado}</div>
+            <div class="scenario-card">
+              <div class="scenario-title">🏪 Cenário 1 — Conveniência (1 único mercado)</div>
+              <div>Leve <b>toda</b> a cesta para o <b>{m_conv}</b> e pague:</div>
+              <div class="scenario-price">R$ {total_conv:,.2f}</div>
+              <div style="color:#889aab;font-size:0.85rem;margin-top:0.3rem">
+                ✅ Menos deslocamento &nbsp;|&nbsp; Simples e rápido
+              </div>
             </div>
             """, unsafe_allow_html=True)
 
-            fig = px.bar(
-                totais, x="mercado", y="total_cesta",
-                color="total_cesta",
-                color_continuous_scale=["#00C48C","#0B1E3F"],
-                labels={"total_cesta":"Total (R$)","mercado":"Mercado"},
-                title="Custo Total da Cesta Básica por Mercado"
-            )
-            fig = plotly_dark_layout(fig, showlegend=False)
-            fig.update_coloraxes(showscale=False)
-            fig.update_traces(text=[fmt_brl(v) for v in totais.total_cesta], textposition="outside",
-                              marker_line_width=0)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
+            # Cenário 2
+            mercados_split = list(eco["por_mercado"].keys())
+            split_label = " + ".join(mercados_split)
+            st.markdown(f"""
+            <div class="scenario-card best">
+              <div class="scenario-title">💡 Cenário 2 — Economia Máxima ({eco['num_mercados']} mercados)</div>
+              <div>Divida a compra entre: <b>{split_label}</b></div>
+              <div class="scenario-price green">R$ {total_eco:,.2f}</div>
+              <div class="economy-badge">💰 Economia de R$ {economia:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            # Cenário 3: resumo
+            pct = (economia / total_conv * 100) if total_conv > 0 else 0
+            st.markdown(f"""
+            <div class="scenario-card" style="border-left-color:#f39c12;background:linear-gradient(135deg,#fffbf0,#fff)">
+              <div class="scenario-title">📋 Resumo da Comparação</div>
+              <table style="width:100%;font-size:0.9rem">
+                <tr><td>💵 Mais barato <b>1 mercado</b></td><td><b>{m_conv}</b> — R$ {total_conv:,.2f}</td></tr>
+                <tr><td>🏆 Economia máxima</td><td><b>{eco['num_mercados']} mercados</b> — R$ {total_eco:,.2f}</td></tr>
+                <tr><td>💚 Você economiza</td><td><b style="color:#2ecc71">R$ {economia:.2f} ({pct:.1f}%)</b></td></tr>
+                <tr><td>🚫 Mais caro</td><td>{mais_caro_m} — R$ {todos_totais[mais_caro_m]:,.2f}</td></tr>
+              </table>
+            </div>
+            """, unsafe_allow_html=True)
 
-        # ── 3. VALIDAÇÃO DE OFERTA ─────────────
-        st.markdown('<div class="sec-title">📸 Validar Oferta (Upload / Foto)</div>', unsafe_allow_html=True)
-
-        with st.container():
-            c1, c2 = st.columns(2)
-            with c1:
-                mercado_val = st.selectbox("Mercado", MERCADOS, key="val_mercado")
-                item_val    = st.selectbox("Produto", ITENS_CESTA, key="val_item")
-                preco_val   = st.number_input("Preço visto (R$)", min_value=0.01, value=15.99, step=0.01, key="val_preco")
-            with c2:
-                foto_val = st.file_uploader("📷 Foto ou Nota Fiscal (opcional)", type=["jpg","jpeg","png","pdf"], key="foto_upload")
-                st.markdown('<div style="color:var(--muted);font-size:.82rem;margin-top:.3rem">Opcional — aumenta o Score de Confiança</div>', unsafe_allow_html=True)
-
-            if st.button("✅ Enviar Validação", use_container_width=True, key="btn_validar"):
-                with st.spinner("Verificando localização e timestamp..."):
-                    time.sleep(0.8)
-
-                score_base = 65
-                if foto_val: score_base += 20
-                score_base += random.randint(0, 15)
-                score = min(score, 99) if (score := score_base) > 99 else score_base
-
-                st.session_state.consumer_points += 50
-                st.session_state.validated_offers += 1
-
-                st.markdown(f"""
-                <div class="card" style="border-color:var(--emerald)">
-                    <div style="font-size:.9rem;color:var(--emerald);font-weight:600;margin-bottom:.6rem">✅ Oferta validada com sucesso! +50 pontos</div>
-                    <div style="display:flex;align-items:center;gap:.8rem">
-                        <div style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;color:{'#00C48C' if score>=80 else '#FFB547'}">{score}%</div>
-                        <div>
-                            <div style="font-weight:500">{mercado_val} · {item_val} · {fmt_brl(preco_val)}</div>
-                            <div style="color:var(--muted);font-size:.82rem">Score de Confiança (geo + timestamp + foto)</div>
-                        </div>
+            # ── PLANO DETALHADO CENÁRIO 2 ──
+            with st.expander("📋 Ver plano detalhado — Quem vendo o quê?", expanded=False):
+                for mercado, info in eco["por_mercado"].items():
+                    cor = CORES_MERCADO.get(mercado, "#333")
+                    itens_html = "".join([
+                        f"<tr><td>{r['item']}</td><td style='text-align:right;color:{cor};font-weight:600'>R$ {r['preco']:.2f}</td></tr>"
+                        for r in info["itens"]
+                    ])
+                    st.markdown(f"""
+                    <div style="margin-bottom:1rem">
+                      <div style="font-family:'Sora',sans-serif;font-weight:700;color:{cor};font-size:1rem;margin-bottom:0.4rem">
+                        🏬 {mercado}
+                      </div>
+                      <table class="split-table">
+                        <thead><tr><th>Item</th><th>Preço</th></tr></thead>
+                        <tbody>{itens_html}</tbody>
+                        <tfoot>
+                          <tr style="background:#f0f4f8">
+                            <td><b>Subtotal</b></td>
+                            <td style="text-align:right"><b>R$ {info['subtotal']:.2f}</b></td>
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
-                    <div class="score-bar-wrap"><div class="score-bar" style="width:{score}%"></div></div>
-                </div>
-                """, unsafe_allow_html=True)
-                st.rerun()
+                    """, unsafe_allow_html=True)
 
-    # ── RIGHT COLUMN ────────────────────────────
-    with col_right:
+            # ── GRÁFICO COMPARATIVO DE PREÇOS POR MERCADO ──
+            st.markdown("#### 🏪 Comparação — Custo total da cesta por mercado")
+            df_totais = pd.DataFrame([
+                {"Mercado": m, "Total": t}
+                for m, t in sorted(todos_totais.items(), key=lambda x: x[1])
+            ])
+            colors = [CORES_MERCADO[m] for m in df_totais["Mercado"]]
 
-        # ── FEED DE OFERTAS RELÂMPAGO ──────────
-        st.markdown('<div class="sec-title">⚡ Ofertas Relâmpago</div>', unsafe_allow_html=True)
+            fig_bar = go.Figure(go.Bar(
+                x=df_totais["Mercado"],
+                y=df_totais["Total"],
+                marker_color=colors,
+                text=[f"R$ {v:.2f}" for v in df_totais["Total"]],
+                textposition="outside",
+            ))
+            fig_bar.update_layout(
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font=dict(family="Sora"),
+                yaxis=dict(showgrid=True, gridcolor="#eef2f7", title="R$"),
+                height=340,
+                margin=dict(t=20, b=10),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-        offers = gerar_flash_offers()
-        for o in offers:
-            desc = round((1 - o["preco_por"]/o["preco_de"])*100)
-            st.markdown(f"""
-            <div class="offer-card">
-                <span class="offer-badge">⚡ -{desc}% OFF</span>
-                <div style="font-weight:600;margin:.4rem 0 .1rem">{o['produto']}</div>
-                <div style="color:var(--muted);font-size:.85rem">{o['mercado']}</div>
-                <div style="display:flex;align-items:baseline;gap:.5rem;margin:.35rem 0">
-                    <span style="text-decoration:line-through;color:var(--muted);font-size:.9rem">{fmt_brl(o['preco_de'])}</span>
-                    <span style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;color:var(--emerald)">{fmt_brl(o['preco_por'])}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted)">
-                    <span>🕐 {o['validade']}</span>
-                    <span>👍 {o['validacoes']} confirmaram</span>
-                </div>
-                <div style="font-size:.78rem;color:var(--muted);margin-top:.3rem">por {o['usuario']}</div>
-                <div class="score-bar-wrap" style="margin-top:.5rem"><div class="score-bar" style="width:{o['score']}%"></div></div>
-                <div style="font-size:.75rem;color:var(--muted);text-align:right;margin-top:.2rem">Score {o['score']}%</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # ── GRÁFICO HEATMAP DE PREÇOS POR ITEM ──
+            if len(itens) > 1:
+                with st.expander("🔥 Ver heatmap de preços por item e mercado"):
+                    df_heat = get_df_precos(itens)
+                    pivot = df_heat.pivot(index="Item", columns="Mercado", values="Preço")
+                    fig_heat = px.imshow(
+                        pivot,
+                        color_continuous_scale=["#2ecc71", "#f39c12", "#e74c3c"],
+                        aspect="auto",
+                        text_auto=".2f",
+                    )
+                    fig_heat.update_layout(
+                        height=max(300, len(itens) * 38),
+                        font=dict(family="Sora", size=11),
+                        margin=dict(t=10, b=10),
+                        coloraxis_colorbar=dict(title="R$"),
+                    )
+                    st.plotly_chart(fig_heat, use_container_width=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    # ── SEÇÃO: FUI AO MERCADO ──
+    st.markdown("---")
+    st.markdown("### 🏃 Fui ao Mercado!")
+    col_fui1, col_fui2 = st.columns([1, 1])
 
-        # ── TENDÊNCIA DE BUSCAS ────────────────
-        st.markdown('<div class="sec-title">📈 Mais Buscados Hoje</div>', unsafe_allow_html=True)
-
-        busca_counts = {i: st.session_state.search_log.get(i, random.randint(20,120)) for i in ITENS_CESTA}
-        df_bc = pd.DataFrame(list(busca_counts.items()), columns=["item","buscas"]).sort_values("buscas", ascending=True)
-
-        fig_bc = px.bar(df_bc, x="buscas", y="item", orientation="h",
-                        color_discrete_sequence=["#00C48C"])
-        fig_bc = plotly_dark_layout(fig_bc, height=280, showlegend=False)
-        fig_bc.update_traces(marker_line_width=0)
-        st.plotly_chart(fig_bc, use_container_width=True, config={"displayModeBar":False})
-
-
-# ══════════════════════════════════════════════
-#  TAB 2 — LOJISTA / BI
-# ══════════════════════════════════════════════
-with tab_lojista:
-
-    # ── STORE SELECTOR ────────────────────────
-    col_store, col_space = st.columns([2, 5])
-    with col_store:
-        st.session_state.lojista_store = st.selectbox(
-            "Sua loja:", MERCADOS, index=MERCADOS.index(st.session_state.lojista_store)
+    with col_fui1:
+        mercado_escolhido = st.selectbox(
+            "Em qual mercado você foi (ou vai)?",
+            MERCADOS,
+            key="sel_mercado_visita"
         )
+        if st.button("✅ Confirmar Visita ao Mercado", key="btn_fui"):
+            st.session_state["trafego_total"] += 1
+            if mercado_escolhido not in st.session_state["lojas_visitadas"]:
+                st.session_state["lojas_visitadas"].append(mercado_escolhido)
+            st.balloons()
+            st.success(f"🎉 Ótimo! Visita ao **{mercado_escolhido}** confirmada! "
+                       f"Você está ajudando nossa comunidade de consumidores. "
+                       f"Tráfego 4SAVR acumulado: **{st.session_state['trafego_total']} visitas**")
 
-    loja = st.session_state.lojista_store
-    st.markdown("<br>", unsafe_allow_html=True)
+    with col_fui2:
+        st.markdown("#### 📸 Validação de Nota Fiscal")
+        st.markdown("*Envie sua NF ou foto do cupom para ganhar Score de Confiança*")
+        uploaded = st.file_uploader(
+            "Upload NF / Foto de Cupom", type=["jpg","jpeg","png","pdf"],
+            key="upload_nf", label_visibility="collapsed"
+        )
+        if uploaded is not None:
+            pontos = random.randint(8, 25)
+            st.session_state["score_confianca"] += pontos
+            st.session_state["historico_validacoes"].append({
+                "arquivo": uploaded.name,
+                "pontos": pontos,
+                "data": datetime.datetime.now().strftime("%d/%m %H:%M"),
+            })
+            st.success(f"✅ Arquivo **{uploaded.name}** recebido! "
+                       f"+{pontos} pontos de confiança adicionados ao seu perfil.")
 
-    # ── KPI ROW ───────────────────────────────
-    k1, k2, k3, k4 = st.columns(4)
-    kpis = [
-        ("📦", "127", "Produtos monitorados"),
-        ("⚡", "3",   "Alertas ativos"),
-        ("👁️",  "842", "Visualizações hoje"),
-        ("💰", "R$ 1.247", "Economia gerada/dia"),
-    ]
-    for col, (icon, val, lbl) in zip([k1,k2,k3,k4], kpis):
-        col.markdown(f"""
-        <div class="metric-box">
-            <div style="font-size:1.6rem">{icon}</div>
-            <div class="metric-val" style="font-size:1.6rem">{val}</div>
-            <div class="metric-lbl">{lbl}</div>
+        score = st.session_state["score_confianca"]
+        nivel = "🥉 Bronze" if score < 50 else ("🥈 Prata" if score < 150 else "🥇 Ouro")
+        st.markdown(f"""
+        <div style="text-align:center;margin-top:0.8rem">
+          <div class="score-badge">{score}</div>
+          <div style="font-family:'Sora',sans-serif;font-weight:700;margin-top:0.4rem">{nivel}</div>
+          <div style="color:#889aab;font-size:0.8rem">Score de Confiança 4SAVR</div>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    col_bi1, col_bi2 = st.columns(2, gap="large")
+# ══════════════════════════════════════════════════════════════════════
+#  ABA 2: LOJISTA
+# ══════════════════════════════════════════════════════════════════════
+with tab_lojista:
+    # KPIs rápidos no topo
+    st.markdown("### 🏬 Painel do Lojista — BI em Tempo Real")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("🚶 Tráfego 4SAVR", f"{st.session_state['trafego_total']}", "+3 hoje")
+    k2.metric("🔍 Itens Buscados", f"{len(st.session_state['buscas_por_item'])}", "na sua região")
+    k3.metric("⭐ Score Médio Clientes", "73 pts", "+12 esta semana")
+    k4.metric("📦 Itens em Alerta", f"{(df_estoque['Dias para Vencer'] < 20).sum()}", "perto do vencimento")
 
-    # ── BI LEFT ──────────────────────────────
-    with col_bi1:
+    st.markdown("---")
+    tab_bi, tab_marcas, tab_validade = st.tabs([
+        "🧠  Inteligência de Mercado",
+        "🏷️  Marcas & Giro",
+        "⚠️  Prevenção de Desperdício"
+    ])
 
-        # ── PAINEL COMPETITIVO ────────────────
-        st.markdown('<div class="sec-title">🏁 Painel Competitivo de Preços</div>', unsafe_allow_html=True)
+    # ────────────────────────────────────────────
+    # TAB B2B-1: INTELIGÊNCIA DE MERCADO
+    # ────────────────────────────────────────────
+    with tab_bi:
+        col_a, col_b = st.columns([3, 2], gap="large")
 
-        item_comp = st.selectbox("Produto para comparar:", ITENS_CESTA, key="comp_item")
-        df_comp   = df_all[df_all.item == item_comp].copy()
-        df_comp["minha_loja"] = df_comp.mercado == loja
+        with col_a:
+            st.markdown("#### 📈 Comparativo de Preços — Seu mercado vs. Grandes Redes")
+            item_cmp = st.selectbox("Selecionar item para comparar:", TODOS_ITENS, key="sel_item_bi")
 
-        colors = [("#00C48C" if r else "#264D73") for r in df_comp.minha_loja]
-        fig_comp = go.Figure(go.Bar(
-            x=df_comp.mercado,
-            y=df_comp.preco,
-            marker_color=colors,
-            text=[fmt_brl(v) for v in df_comp.preco],
-            textposition="outside",
+            precos_item = PRECOS_BASE[item_cmp]
+            df_cmp = pd.DataFrame([
+                {"Mercado": m, "Preço": p, "Tipo": "Sua Loja" if m == "Condor" else "Concorrente"}
+                for m, p in sorted(precos_item.items(), key=lambda x: x[1])
+            ])
+            colors_cmp = [
+                "#2ecc71" if t == "Sua Loja" else CORES_MERCADO[m]
+                for m, t in zip(df_cmp["Mercado"], df_cmp["Tipo"])
+            ]
+
+            fig_cmp = go.Figure(go.Bar(
+                x=df_cmp["Mercado"],
+                y=df_cmp["Preço"],
+                marker_color=colors_cmp,
+                text=[f"R$ {v:.2f}" for v in df_cmp["Preço"]],
+                textposition="outside",
+            ))
+            fig_cmp.update_layout(
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(family="Sora"),
+                yaxis=dict(title="R$", showgrid=True, gridcolor="#eef2f7"),
+                height=350, margin=dict(t=10, b=10), showlegend=False,
+            )
+            # Linha de média
+            media = df_cmp["Preço"].mean()
+            fig_cmp.add_hline(
+                y=media, line_dash="dot", line_color="#f39c12",
+                annotation_text=f"Média R$ {media:.2f}", annotation_position="top right"
+            )
+            st.plotly_chart(fig_cmp, use_container_width=True)
+
+            preco_loja = precos_item["Condor"]
+            preco_min  = min(precos_item.values())
+            diff_min   = preco_loja - preco_min
+            if diff_min > 0:
+                st.warning(f"⚠️ Seu preço está **R$ {diff_min:.2f} acima** do mais barato da região. "
+                           f"Considere ajustar para reter clientes 4SAVR.")
+            else:
+                st.success(f"✅ Parabéns! Você já tem o **menor preço** para {item_cmp} na região!")
+
+        with col_b:
+            st.markdown("#### 🎯 Radar de Procura — Bairro")
+            st.markdown("*Itens mais buscados por consumidores 4SAVR na sua região agora*")
+
+            buscas = radar_buscas()
+            top_buscas = sorted(buscas.items(), key=lambda x: x[1], reverse=True)[:10]
+            df_radar = pd.DataFrame(top_buscas, columns=["Item", "Buscas"])
+            df_radar["Item_curto"] = df_radar["Item"].str.replace(r"\s\d.*", "", regex=True)
+
+            fig_radar = go.Figure(go.Bar(
+                x=df_radar["Buscas"],
+                y=df_radar["Item_curto"],
+                orientation="h",
+                marker=dict(
+                    color=df_radar["Buscas"],
+                    colorscale=[[0, "#a8c8e8"], [1, "#001f3f"]],
+                ),
+                text=df_radar["Buscas"],
+                textposition="outside",
+            ))
+            fig_radar.update_layout(
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(family="Sora"),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(autorange="reversed"),
+                height=380, margin=dict(t=10, b=10),
+            )
+            st.plotly_chart(fig_radar, use_container_width=True)
+
+        # Tráfego 4SAVR timeline simulada
+        st.markdown("#### 🚶 Histórico de Tráfego 4SAVR — Últimos 30 dias")
+        dias = pd.date_range(end=datetime.date.today(), periods=30)
+        trafego_hist = np.random.poisson(lam=4, size=30)
+        trafego_hist[-1] += st.session_state["trafego_total"] - 47
+        trafego_hist = np.clip(trafego_hist, 0, None)
+
+        fig_traf = go.Figure()
+        fig_traf.add_trace(go.Scatter(
+            x=dias, y=trafego_hist.cumsum(),
+            fill="tozeroy", fillcolor="rgba(46,204,113,0.15)",
+            line=dict(color="#2ecc71", width=2.5),
+            name="Tráfego acumulado",
         ))
-        fig_comp = plotly_dark_layout(fig_comp, height=320, showlegend=False)
-        fig_comp.update_layout(title=f"Preço de {item_comp} — verde = {loja}")
-        fig_comp.update_traces(marker_line_width=0)
-        st.plotly_chart(fig_comp, use_container_width=True, config={"displayModeBar":False})
+        fig_traf.add_trace(go.Bar(
+            x=dias, y=trafego_hist,
+            marker_color="#001f3f", opacity=0.5,
+            name="Visitas/dia",
+        ))
+        fig_traf.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            font=dict(family="Sora"), height=280,
+            legend=dict(orientation="h", yanchor="bottom", y=1),
+            margin=dict(t=30, b=10),
+        )
+        st.plotly_chart(fig_traf, use_container_width=True)
 
-        meu_preco  = df_comp[df_comp.mercado == loja].preco.values[0]
-        min_preco  = df_comp.preco.min()
-        rival_min  = df_comp[df_comp.mercado != loja].preco.min()
-        rival_nome = df_comp[df_comp.preco == rival_min].mercado.values[0]
+    # ────────────────────────────────────────────
+    # TAB B2B-2: MARCAS & GIRO
+    # ────────────────────────────────────────────
+    with tab_marcas:
+        col_m1, col_m2 = st.columns([3, 2], gap="large")
 
-        if meu_preco <= min_preco:
-            st.markdown(f'<div class="alert-ok">✅ <b>{loja}</b> tem o <b>menor preço</b> do mercado para {item_comp}! Ótima posição.</div>', unsafe_allow_html=True)
-        else:
-            diff = round(meu_preco - rival_min, 2)
-            st.markdown(f'<div class="alert-warn">⚠️ <b>{rival_nome}</b> está {fmt_brl(diff)} mais barato em <b>{item_comp}</b>. Considere ajustar o preço.</div>', unsafe_allow_html=True)
+        with col_m1:
+            st.markdown("#### 🏷️ Análise de Performance por Marca")
+            categoria_sel = st.selectbox("Categoria:", list(MARCAS.keys()), key="sel_cat_marca")
+            marcas_lista  = MARCAS[categoria_sel]
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            # Giro simulado por marca
+            np.random.seed(hash(categoria_sel) % 100)
+            giro      = np.random.randint(20, 200, len(marcas_lista))
+            interesse = np.random.randint(10, 100, len(marcas_lista))
+            margem    = np.random.uniform(0.08, 0.28, len(marcas_lista))
 
-        # ── HISTÓRICO DE PREÇOS ───────────────
-        st.markdown('<div class="sec-title">📉 Histórico de Preços (30 dias)</div>', unsafe_allow_html=True)
+            df_marcas = pd.DataFrame({
+                "Marca":    marcas_lista,
+                "Giro (un/sem)": giro,
+                "Interesse (cliques)": interesse,
+                "Margem (%)": (margem * 100).round(1),
+            })
 
-        df_hist = gerar_historico_precos(loja, item_comp)
-        fig_hist = px.area(df_hist, x="dia", y="preco", line_shape="spline",
-                           color_discrete_sequence=["#00C48C"])
-        fig_hist.update_traces(fill="tozeroy", fillcolor="rgba(0,196,140,.12)", line=dict(width=2))
-        fig_hist = plotly_dark_layout(fig_hist, height=240, showlegend=False)
-        fig_hist.update_layout(xaxis=dict(tickangle=-45, nticks=10))
-        st.plotly_chart(fig_hist, use_container_width=True, config={"displayModeBar":False})
+            fig_marcas = go.Figure()
+            fig_marcas.add_trace(go.Bar(
+                name="Giro (un/sem)", x=df_marcas["Marca"], y=df_marcas["Giro (un/sem)"],
+                marker_color="#001f3f",
+            ))
+            fig_marcas.add_trace(go.Bar(
+                name="Interesse (cliques)", x=df_marcas["Marca"], y=df_marcas["Interesse (cliques)"],
+                marker_color="#2ecc71",
+            ))
+            fig_marcas.update_layout(
+                barmode="group", plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(family="Sora"), height=340, margin=dict(t=10, b=10),
+            )
+            st.plotly_chart(fig_marcas, use_container_width=True)
 
-    # ── BI RIGHT ─────────────────────────────
-    with col_bi2:
+            # Scatter: margem vs giro
+            fig_sc = px.scatter(
+                df_marcas, x="Giro (un/sem)", y="Margem (%)",
+                text="Marca", size="Interesse (cliques)",
+                color="Marca",
+                color_discrete_sequence=["#001f3f","#2ecc71","#f39c12","#e74c3c"],
+            )
+            fig_sc.update_traces(textposition="top center")
+            fig_sc.update_layout(
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(family="Sora"), height=300,
+                showlegend=False, margin=dict(t=10),
+            )
+            st.plotly_chart(fig_sc, use_container_width=True)
 
-        # ── GIRO DE MARCAS ────────────────────
-        st.markdown('<div class="sec-title">📊 Giro de Marcas (Demanda no App)</div>', unsafe_allow_html=True)
+        with col_m2:
+            st.markdown("#### 📦 Sugestão de Pedido ao Distribuidor")
+            st.markdown("*Baseado no giro médio e estoque atual*")
 
-        item_marca = st.selectbox("Produto:", ITENS_CESTA, key="marca_item")
-        df_marcas  = gerar_giro_marcas(item_marca)
+            for _, row in df_marcas.iterrows():
+                semanas_ideal  = 3
+                qtd_ideal      = row["Giro (un/sem)"] * semanas_ideal
+                estoque_atual  = random.randint(10, 80)
+                pedido_sugere  = max(0, qtd_ideal - estoque_atual)
 
-        fig_marcas = go.Figure()
-        fig_marcas.add_trace(go.Bar(name="Buscas", x=df_marcas.marca, y=df_marcas.buscas,
-                                     marker_color="#264D73"))
-        fig_marcas.add_trace(go.Bar(name="Compras", x=df_marcas.marca, y=df_marcas.conversoes,
-                                     marker_color="#00C48C"))
-        fig_marcas.update_layout(barmode="group")
-        fig_marcas = plotly_dark_layout(fig_marcas, height=280)
-        fig_marcas.update_traces(marker_line_width=0)
-        st.plotly_chart(fig_marcas, use_container_width=True, config={"displayModeBar":False})
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── ALERTAS DE PERDA / VALIDADE ───────
-        st.markdown('<div class="sec-title">🚨 Gestão de Perdas & Validade</div>', unsafe_allow_html=True)
-
-        alertas = [
-            {"produto":"Leite Tirol 1L","estoque":"Baixa saída","dias":3,"severidade":"alta"},
-            {"produto":"Pão de Forma Wickbold","estoque":"Crítico","dias":1,"severidade":"critica"},
-            {"produto":"Iogurte Natural Batavo","estoque":"Moderado","dias":5,"severidade":"media"},
-        ]
-
-        for a in alertas:
-            border = {"alta":"rgba(255,82,82,.4)","critica":"rgba(255,82,82,.7)","media":"rgba(255,181,71,.4)"}[a["severidade"]]
-            icon   = {"alta":"⚠️","critica":"🔴","media":"🟡"}[a["severidade"]]
-            action = f'<span style="color:var(--emerald);cursor:pointer;font-size:.8rem">→ Lançar Promoção Relâmpago</span>'
-            st.markdown(f"""
-            <div class="card-sm" style="border-color:{border}">
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                        <span style="font-weight:600">{icon} {a['produto']}</span>
-                        <div style="color:var(--muted);font-size:.8rem">{a['estoque']} · vence em {a['dias']} dia(s)</div>
-                    </div>
-                    {action}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── LANÇAR OFERTA RELÂMPAGO ───────────
-        st.markdown('<div class="sec-title">⚡ Lançar Oferta Relâmpago</div>', unsafe_allow_html=True)
-
-        with st.container():
-            o_produto  = st.selectbox("Produto:", ITENS_CESTA, key="o_prod")
-            o_de, o_por = st.columns(2)
-            with o_de:
-                o_preco_de  = st.number_input("Preço De (R$)", min_value=0.01, value=18.90, key="o_de")
-            with o_por:
-                o_preco_por = st.number_input("Preço Por (R$)", min_value=0.01, value=14.90, key="o_por")
-            o_validade  = st.selectbox("Validade:", ["Hoje até 22h","Amanhã","Fim de semana","3 dias"], key="o_val")
-            o_descricao = st.text_area("Mensagem (opcional):", placeholder="Ex: Estoque limitado! Últimas unidades.", key="o_desc", height=68)
-
-            if st.button("📢 Publicar Oferta Agora", use_container_width=True, key="btn_oferta"):
-                desc_pct = round((1 - o_preco_por/o_preco_de)*100)
+                cor_card = "#f0fff6" if pedido_sugere < 30 else "#fff8e1" if pedido_sugere < 80 else "#fff3f3"
+                icon = "🟢" if pedido_sugere < 30 else ("🟡" if pedido_sugere < 80 else "🔴")
                 st.markdown(f"""
-                <div class="card" style="border-color:var(--emerald)">
-                    <div style="color:var(--emerald);font-weight:700;margin-bottom:.4rem">✅ Oferta publicada com sucesso!</div>
-                    <div style="color:var(--muted);font-size:.85rem">
-                        {o_produto} · {loja} · <b style="color:var(--gold)">-{desc_pct}%</b><br>
-                        {fmt_brl(o_preco_de)} → <b style="color:var(--emerald)">{fmt_brl(o_preco_por)}</b><br>
-                        Válida: {o_validade}
-                    </div>
-                    <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
-                        📱 Notificação enviada a todos os consumidores do bairro.
-                    </div>
+                <div style="background:{cor_card};border-radius:10px;padding:0.8rem 1rem;margin-bottom:0.7rem;border:1px solid #e0e8f0">
+                  <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:0.95rem">{icon} {row['Marca']}</div>
+                  <div style="font-size:0.82rem;color:#556;margin-top:0.2rem">
+                    Estoque atual: <b>{estoque_atual} un</b> &nbsp;|&nbsp; Giro: <b>{row['Giro (un/sem)']} un/sem</b>
+                  </div>
+                  <div style="font-size:0.95rem;font-weight:700;color:#001f3f;margin-top:0.3rem">
+                    📋 Pedido sugerido: <span style="color:#2ecc71">{pedido_sugeres:.0f} un</span>
+                  </div>
                 </div>
-                """, unsafe_allow_html=True)
-                st.session_state.offer_posted = True
+                """.replace("pedido_sugeres", str(int(pedido_sugere))), unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.caption("💡 *Quantidade ideal = 3 semanas de estoque. Ajuste conforme sazonalidade.*")
 
-    # ── TENDÊNCIA DE BUSCAS (FULL WIDTH) ─────
-    st.markdown('<div class="sec-title">📡 Tendência de Buscas no Bairro (últimos 7 dias)</div>', unsafe_allow_html=True)
+    # ────────────────────────────────────────────
+    # TAB B2B-3: PREVENÇÃO DE DESPERDÍCIO
+    # ────────────────────────────────────────────
+    with tab_validade:
+        st.markdown("#### ⚠️ Radar de Validade & Prevenção de Desperdício")
 
-    df_tend = gerar_tendencia_bairro()
-    fig_tend = px.line(df_tend, x="dia", y="buscas", color="item",
-                       line_shape="spline", markers=True,
-                       color_discrete_sequence=px.colors.qualitative.Set2)
-    fig_tend = plotly_dark_layout(fig_tend, height=320)
-    fig_tend.update_traces(line=dict(width=2.5))
-    st.plotly_chart(fig_tend, use_container_width=True, config={"displayModeBar":False})
+        # Filtro
+        filtro_dias = st.slider("Mostrar itens com vencimento em até (dias):", 7, 90, 30, key="sl_dias")
+        df_alerta = df_estoque[df_estoque["Dias para Vencer"] <= filtro_dias].sort_values("Dias para Vencer")
 
-# ─────────────────────────────────────────────
-#  FOOTER
-# ─────────────────────────────────────────────
+        col_v1, col_v2 = st.columns([3, 2], gap="large")
+
+        with col_v1:
+            if df_alerta.empty:
+                st.success("✅ Nenhum item com vencimento nos próximos dias. Ótima gestão!")
+            else:
+                for _, row in df_alerta.iterrows():
+                    critico = row["Dias para Vencer"] <= 10
+                    classe  = "alert-card danger" if critico else "alert-card"
+                    icon    = "🚨" if critico else "⚠️"
+                    badge   = f"<b style='color:#e74c3c'>CRÍTICO</b>" if critico else "<b style='color:#f39c12'>Atenção</b>"
+
+                    # Verificar se já tem promoção ativa
+                    tem_promo = row["Item"] in st.session_state["promo_relampago"]
+                    promo_html = "<span style='background:#2ecc71;color:white;border-radius:10px;padding:2px 10px;font-size:0.78rem'>🏷️ PROMOÇÃO ATIVA</span>" if tem_promo else ""
+
+                    st.markdown(f"""
+                    <div class="{classe}">
+                      <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:0.95rem">
+                        {icon} {row['Item']} {promo_html}
+                      </div>
+                      <div style="font-size:0.82rem;margin-top:0.3rem;color:#556">
+                        Vence em: <b>{row['Dias para Vencer']} dias</b> ({row['Validade'].strftime('%d/%m/%Y')})
+                        &nbsp;|&nbsp; Estoque: <b>{row['Estoque (un)']} un</b>
+                        &nbsp;|&nbsp; Giro: <b>{row['Giro Semanal']} un/sem</b>
+                        &nbsp;|&nbsp; {badge}
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if not tem_promo:
+                        if st.button(
+                            f"📣 Criar Promoção Relâmpago — {row['Item']}",
+                            key=f"promo_{row['Item']}"
+                        ):
+                            st.session_state["promo_relampago"].append(row["Item"])
+                            st.success(f"🎉 Promoção Relâmpago criada para **{row['Item']}**! "
+                                       f"Notificação enviada para **{random.randint(80, 340)} consumidores** "
+                                       f"da sua região via app 4SAVR.")
+                            st.rerun()
+
+        with col_v2:
+            # Gráfico donut: distribuição de urgência
+            d_ok      = (df_estoque["Dias para Vencer"] > 30).sum()
+            d_atencao = ((df_estoque["Dias para Vencer"] > 10) & (df_estoque["Dias para Vencer"] <= 30)).sum()
+            d_critico = (df_estoque["Dias para Vencer"] <= 10).sum()
+
+            fig_donut = go.Figure(go.Pie(
+                values=[d_ok, d_atencao, d_critico],
+                labels=["OK (>30d)", "Atenção (11-30d)", "Crítico (≤10d)"],
+                hole=0.55,
+                marker=dict(colors=["#2ecc71", "#f39c12", "#e74c3c"]),
+                textinfo="label+percent",
+                textfont=dict(family="Sora", size=11),
+            ))
+            fig_donut.update_layout(
+                font=dict(family="Sora"),
+                paper_bgcolor="white",
+                height=300,
+                margin=dict(t=10, b=10),
+                annotations=[dict(
+                    text=f"<b>{len(df_estoque)}</b><br>itens",
+                    x=0.5, y=0.5, font_size=16, showarrow=False,
+                    font=dict(family="Sora", color="#001f3f"),
+                )],
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
+
+            # Scatter: estoque vs dias para vencer
+            fig_est = px.scatter(
+                df_estoque,
+                x="Dias para Vencer", y="Estoque (un)",
+                size="Giro Semanal", color="Dias para Vencer",
+                color_continuous_scale=["#e74c3c","#f39c12","#2ecc71"],
+                hover_name="Item",
+                labels={"Dias para Vencer": "Dias p/ Vencer", "Estoque (un)": "Estoque"},
+            )
+            fig_est.update_layout(
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(family="Sora"), height=280,
+                margin=dict(t=10, b=10),
+                coloraxis_showscale=False,
+            )
+            fig_est.add_vline(x=10, line_dash="dot", line_color="#e74c3c", annotation_text="Crítico")
+            fig_est.add_vline(x=30, line_dash="dot", line_color="#f39c12", annotation_text="Atenção")
+            st.plotly_chart(fig_est, use_container_width=True)
+
+        # Promoções ativas
+        if st.session_state["promo_relampago"]:
+            st.markdown("---")
+            st.markdown("#### 🏷️ Promoções Relâmpago Ativas")
+            promo_cols = st.columns(min(3, len(st.session_state["promo_relampago"])))
+            for i, item_promo in enumerate(st.session_state["promo_relampago"]):
+                with promo_cols[i % 3]:
+                    desc = random.randint(10, 30)
+                    preco_orig = PRECOS_BASE.get(item_promo, {}).get("Condor", 10.0)
+                    preco_promo = preco_orig * (1 - desc / 100)
+                    st.markdown(f"""
+                    <div style="background:linear-gradient(135deg,#001f3f,#003366);border-radius:12px;
+                                padding:1rem;color:white;text-align:center">
+                      <div style="font-size:0.8rem;color:#a8c8e8">PROMOÇÃO RELÂMPAGO</div>
+                      <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:0.95rem;
+                                  margin:0.4rem 0">{item_promo}</div>
+                      <div style="text-decoration:line-through;color:#a8c8e8;font-size:0.85rem">
+                        R$ {preco_orig:.2f}</div>
+                      <div style="font-size:1.6rem;font-weight:800;color:#2ecc71">
+                        R$ {preco_promo:.2f}</div>
+                      <div style="background:#2ecc71;border-radius:10px;padding:2px 8px;
+                                  font-size:0.8rem;font-weight:700;display:inline-block;margin-top:0.3rem">
+                        -{desc}% OFF</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# ── FOOTER ──
 st.markdown("""
-<hr>
-<div style="text-align:center;color:#3A5A7A;font-size:.8rem;padding:.8rem 0">
-    4SAVR · MVP Beta · Dados simulados para demonstração · 
-    <span style="color:#00C48C">Scraper estruturado pronto para ativação em produção</span>
+<div class="footer-note">
+  4SAVR MVP v4.0 &nbsp;|&nbsp; Dados simulados para demonstração &nbsp;|&nbsp;
+  Desenvolvido com ❤️ para o comércio local de Curitiba &nbsp;|&nbsp; 🛒
 </div>
 """, unsafe_allow_html=True)
